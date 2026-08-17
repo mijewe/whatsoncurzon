@@ -1,0 +1,14 @@
+{
+  "name": "curzon-but-better",
+  "version": "1.0.0",
+  "description": "A single-page Curzon showtimes aggregator across your favourite cinemas.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "refresh": "node scripts/fetch-showtimes.mjs"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curzon, but better</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --border: #e2e2e2;
+    --accent: #c9184a;
+    --accent-fg: #ffffff;
+    --chip-bg: #f4f4f4;
+    --chip-bg-sold-out: #f4f4f4;
+    --card-bg: #fafafa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181a;
+      --fg: #f0f0f0;
+      --muted: #9a9a9a;
+      --border: #333537;
+      --accent: #ff5c8a;
+      --accent-fg: #16181a;
+      --chip-bg: #24262a;
+      --chip-bg-sold-out: #24262a;
+      --card-bg: #1d1f22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.45;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px 20px 80px;
+  }
+  header h1 {
+    font-size: 1.5rem;
+    margin: 0 0 4px;
+  }
+  header p.tagline {
+    margin: 0 0 24px;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .field label {
+    display: block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  select[type="date"], input[type="date"], select {
+    font-size: 1rem;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--fg);
+  }
+  .cinema-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cinema-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    cursor: pointer;
+    font-size: 0.85rem;
+    user-select: none;
+  }
+  .cinema-toggle input { display: none; }
+  .cinema-toggle.active {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
+  }
+  .status {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 20px 0;
+  }
+  .status.error { color: var(--accent); }
+  section.film {
+    margin-bottom: 40px;
+  }
+  section.film h2 {
+    font-size: 1.3rem;
+    border-bottom: 2px solid var(--fg);
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+  }
+  section.film p.runtime {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  section.film p.desc {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .cinema-group {
+    margin-bottom: 16px;
+  }
+  .cinema-group h3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.95rem;
+    margin: 0 0 6px;
+  }
+  .citymapper-link {
+    display: inline-flex;
+    color: var(--muted);
+  }
+  .citymapper-link:hover {
+    color: var(--accent);
+  }
+  .citymapper-link svg {
+    width: 14px;
+    height: 14px;
+  }
+  .times {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .time-chip {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 6px;
+    background: var(--chip-bg);
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+    text-decoration: none;
+    color: var(--fg);
+  }
+  a.time-chip:hover {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .time-chip.sold-out {
+    background: var(--chip-bg-sold-out);
+    color: var(--muted);
+    text-decoration: line-through;
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  footer {
+    margin-top: 40px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Curzon, but better</h1>
+    <p class="tagline">See what's on at your favourite Curzon cinemas</p>
+  </header>
+
+  <div class="controls">
+    <div class="field">
+      <label for="date-select">Date</label>
+      <select id="date-select"></select>
+    </div>
+    <div class="field">
+      <label>Cinemas</label>
+      <div class="cinema-picker" id="cinema-picker"></div>
+    </div>
+  </div>
+
+  <div id="status" class="status"></div>
+  <div id="results"></div>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+const STORAGE_KEY = 'curzon-favourite-cinemas';
+
+function loadFavourites() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveFavourites(ids) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+}
+
+function formatDateLabel(dateStr, todayStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const weekday = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const label = `${weekday} ${day}`;
+  return dateStr === todayStr ? `Today — ${label}` : label;
+}
+
+function formatTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit' }).replace(/^0/, '');
+}
+
+function formatTimeRange(startIso, endIso) {
+  return `${formatTime(startIso)} → ${formatTime(endIso)}`;
+}
+
+function formatRuntime(minutes) {
+  if (!minutes) return '';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+function bookingUrl(showtimeId) {
+  return `https://www.curzon.com/ticketing/seats/${showtimeId}/`;
+}
+
+function citymapperUrl(site) {
+  const params = new URLSearchParams({
+    endcoord: `${site.latitude},${site.longitude}`,
+    endname: `Curzon ${site.name}`,
+    endaddress: site.address,
+  });
+  return `https://citymapper.com/directions?${params}`;
+}
+
+const PIN_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
+
+async function main() {
+  const statusEl = document.getElementById('status');
+  const dateSelect = document.getElementById('date-select');
+  const cinemaPicker = document.getElementById('cinema-picker');
+  const resultsEl = document.getElementById('results');
+  const footerEl = document.getElementById('footer');
+
+  let data;
+  try {
+    const res = await fetch('data.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    statusEl.textContent = `Couldn't load showtimes data (${err.message}). Try refreshing.`;
+    statusEl.classList.add('error');
+    return;
+  }
+
+  const todayStr = data.days[0];
+
+  // Date picker
+  for (const day of data.days) {
+    const opt = document.createElement('option');
+    opt.value = day;
+    opt.textContent = formatDateLabel(day, todayStr);
+    dateSelect.appendChild(opt);
+  }
+
+  // Cinema picker, restoring favourites (default: all selected on first visit)
+  const savedFavourites = loadFavourites();
+  const favouriteIds = new Set(
+    savedFavourites ? savedFavourites.filter((id) => data.sites.some((s) => s.id === id)) : data.sites.map((s) => s.id)
+  );
+
+  function renderCinemaPicker() {
+    cinemaPicker.innerHTML = '';
+    for (const site of data.sites) {
+      const label = document.createElement('label');
+      label.className = 'cinema-toggle' + (favouriteIds.has(site.id) ? ' active' : '');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = favouriteIds.has(site.id);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) favouriteIds.add(site.id);
+        else favouriteIds.delete(site.id);
+        saveFavourites([...favouriteIds]);
+        label.classList.toggle('active', checkbox.checked);
+        render();
+      });
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(site.name));
+      cinemaPicker.appendChild(label);
+    }
+  }
+
+  function render() {
+    const date = dateSelect.value;
+    const dayData = data.showtimesByDate[date] || {};
+    resultsEl.innerHTML = '';
+    statusEl.classList.remove('error');
+
+    if (favouriteIds.size === 0) {
+      statusEl.textContent = 'Pick at least one cinema above.';
+      return;
+    }
+
+    const selectedSites = data.sites.filter((s) => favouriteIds.has(s.id));
+    const siteById = new Map(selectedSites.map((s) => [s.id, s]));
+
+    // filmId -> siteId -> showtimes[]
+    const byFilm = new Map();
+    for (const site of selectedSites) {
+      const showtimes = dayData[site.id] || [];
+      for (const st of showtimes) {
+        if (!byFilm.has(st.filmId)) byFilm.set(st.filmId, new Map());
+        const bySite = byFilm.get(st.filmId);
+        if (!bySite.has(site.id)) bySite.set(site.id, []);
+        bySite.get(site.id).push(st);
+      }
+    }
+
+    if (byFilm.size === 0) {
+      statusEl.textContent = 'Nothing found for your chosen cinemas on this date.';
+      return;
+    }
+    statusEl.textContent = '';
+
+    // Films ordered by their earliest showtime across the selected cinemas.
+    const filmsSorted = [...byFilm.entries()].sort((a, b) => {
+      const earliest = (bySite) => Math.min(...[...bySite.values()].flat().map((t) => Date.parse(t.startsAt)));
+      return earliest(a[1]) - earliest(b[1]);
+    });
+
+    for (const [filmId, bySite] of filmsSorted) {
+      const film = data.films[filmId] || { title: filmId, description: '', runtimeMinutes: null };
+      const section = document.createElement('section');
+      section.className = 'film';
+
+      const h2 = document.createElement('h2');
+      h2.textContent = film.title;
+      section.appendChild(h2);
+
+      const runtimeText = formatRuntime(film.runtimeMinutes);
+      if (runtimeText) {
+        const runtime = document.createElement('p');
+        runtime.className = 'runtime';
+        runtime.textContent = runtimeText;
+        section.appendChild(runtime);
+      }
+
+      if (film.description) {
+        const p = document.createElement('p');
+        p.className = 'desc';
+        p.textContent = film.description;
+        section.appendChild(p);
+      }
+
+      const sitesSorted = [...bySite.entries()].sort((a, b) =>
+        siteById.get(a[0]).name.localeCompare(siteById.get(b[0]).name)
+      );
+
+      for (const [siteId, times] of sitesSorted) {
+        times.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+
+        const group = document.createElement('div');
+        group.className = 'cinema-group';
+
+        const site = siteById.get(siteId);
+        const h3 = document.createElement('h3');
+        h3.appendChild(document.createTextNode(site.name));
+        const mapLink = document.createElement('a');
+        mapLink.className = 'citymapper-link';
+        mapLink.href = citymapperUrl(site);
+        mapLink.target = '_blank';
+        mapLink.rel = 'noopener';
+        mapLink.title = 'Directions via Citymapper';
+        mapLink.setAttribute('aria-label', `Directions to ${site.name} via Citymapper`);
+        mapLink.innerHTML = PIN_ICON_SVG;
+        h3.appendChild(mapLink);
+        group.appendChild(h3);
+
+        const timesDiv = document.createElement('div');
+        timesDiv.className = 'times';
+        for (const t of times) {
+          if (t.isSoldOut) {
+            const chip = document.createElement('span');
+            chip.className = 'time-chip sold-out';
+            chip.textContent = formatTimeRange(t.startsAt, t.endsAt);
+            chip.title = 'Sold out';
+            chip.setAttribute('aria-disabled', 'true');
+            timesDiv.appendChild(chip);
+            continue;
+          }
+          const chip = document.createElement('a');
+          chip.className = 'time-chip';
+          chip.textContent = formatTimeRange(t.startsAt, t.endsAt);
+          chip.href = bookingUrl(t.id);
+          chip.target = '_blank';
+          chip.rel = 'noopener';
+          timesDiv.appendChild(chip);
+        }
+        group.appendChild(timesDiv);
+        section.appendChild(group);
+      }
+
+      resultsEl.appendChild(section);
+    }
+  }
+
+  renderCinemaPicker();
+  dateSelect.addEventListener('change', render);
+  render();
+
+  const generated = new Date(data.generatedAt);
+  footerEl.textContent = `Listings last refreshed ${generated.toLocaleString('en-GB')}. Not affiliated with Curzon.`;
+}
+
+main();
+</script>
+</body>
+</html>
