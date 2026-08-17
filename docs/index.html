@@ -66,13 +66,20 @@
     color: var(--muted);
     margin-bottom: 6px;
   }
-  select[type="date"], input[type="date"], select {
+  select[type="date"], input[type="date"], input[type="time"], select {
     font-size: 1rem;
     padding: 8px 10px;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--card-bg);
     color: var(--fg);
+  }
+  .time-filter {
+    display: flex;
+    gap: 8px;
+  }
+  input[type="time"]:disabled {
+    opacity: 0.5;
   }
   .cinema-picker {
     display: flex;
@@ -136,12 +143,29 @@
     width: 16px;
     height: 16px;
   }
-  section.film p.runtime {
+  .film-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     margin: 0 0 8px;
+  }
+  section.film p.runtime {
+    margin: 0;
     color: var(--muted);
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  .curzon-link {
+    flex-shrink: 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .curzon-link:hover {
+    color: var(--accent);
   }
   section.film p.desc {
     margin: 0 0 16px;
@@ -263,6 +287,17 @@
       <select id="date-select"></select>
     </div>
     <div class="field">
+      <label for="time-filter-mode">Show times</label>
+      <div class="time-filter">
+        <select id="time-filter-mode">
+          <option value="any">Any time</option>
+          <option value="after">After</option>
+          <option value="before">Before</option>
+        </select>
+        <input type="time" id="time-filter-value">
+      </div>
+    </div>
+    <div class="field">
       <label>Cinemas</label>
       <div class="cinema-picker" id="cinema-picker"></div>
     </div>
@@ -305,6 +340,34 @@ function saveHiddenFilms(ids) {
   localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(ids));
 }
 
+const TIME_FILTER_STORAGE_KEY = 'curzon-time-filter';
+
+function loadTimeFilter() {
+  try {
+    const raw = localStorage.getItem(TIME_FILTER_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveTimeFilter(filter) {
+  localStorage.setItem(TIME_FILTER_STORAGE_KEY, JSON.stringify(filter));
+}
+
+function timeOfDayMinutes(iso) {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function matchesTimeFilter(iso, filter) {
+  if (filter.mode === 'any' || !filter.time) return true;
+  const [h, m] = filter.time.split(':').map(Number);
+  const cutoff = h * 60 + m;
+  const minutes = timeOfDayMinutes(iso);
+  return filter.mode === 'after' ? minutes >= cutoff : minutes < cutoff;
+}
+
 function formatDateLabel(dateStr, todayStr) {
   const d = new Date(dateStr + 'T12:00:00Z');
   const weekday = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
@@ -335,6 +398,11 @@ function bookingUrl(showtimeId) {
   return `https://www.curzon.com/ticketing/seats/${showtimeId}/`;
 }
 
+function filmUrl(filmId) {
+  // The slug segment is cosmetic — curzon.com routes on the film ID alone.
+  return `https://www.curzon.com/films/film/${filmId}/`;
+}
+
 function citymapperUrl(site) {
   const params = new URLSearchParams({
     endcoord: `${site.latitude},${site.longitude}`,
@@ -353,6 +421,8 @@ const EYE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 async function main() {
   const statusEl = document.getElementById('status');
   const dateSelect = document.getElementById('date-select');
+  const timeFilterMode = document.getElementById('time-filter-mode');
+  const timeFilterValue = document.getElementById('time-filter-value');
   const cinemaPicker = document.getElementById('cinema-picker');
   const resultsEl = document.getElementById('results');
   const footerEl = document.getElementById('footer');
@@ -385,6 +455,23 @@ async function main() {
   );
 
   const hiddenFilmIds = new Set(loadHiddenFilms());
+
+  const timeFilter = loadTimeFilter() || { mode: 'any', time: '18:00' };
+  timeFilterMode.value = timeFilter.mode;
+  timeFilterValue.value = timeFilter.time;
+  timeFilterValue.disabled = timeFilter.mode === 'any';
+
+  timeFilterMode.addEventListener('change', () => {
+    timeFilter.mode = timeFilterMode.value;
+    timeFilterValue.disabled = timeFilter.mode === 'any';
+    saveTimeFilter(timeFilter);
+    render();
+  });
+  timeFilterValue.addEventListener('change', () => {
+    timeFilter.time = timeFilterValue.value;
+    saveTimeFilter(timeFilter);
+    render();
+  });
 
   function renderCinemaPicker() {
     cinemaPicker.innerHTML = '';
@@ -426,6 +513,7 @@ async function main() {
     for (const site of selectedSites) {
       const showtimes = dayData[site.id] || [];
       for (const st of showtimes) {
+        if (!matchesTimeFilter(st.startsAt, timeFilter)) continue;
         if (!byFilm.has(st.filmId)) byFilm.set(st.filmId, new Map());
         const bySite = byFilm.get(st.filmId);
         if (!bySite.has(site.id)) bySite.set(site.id, []);
@@ -434,7 +522,8 @@ async function main() {
     }
 
     if (byFilm.size === 0) {
-      statusEl.textContent = 'Nothing found for your chosen cinemas on this date.';
+      const filterNote = timeFilter.mode !== 'any' && timeFilter.time ? ` ${timeFilter.mode} ${timeFilter.time}` : '';
+      statusEl.textContent = `Nothing found for your chosen cinemas${filterNote} on this date.`;
       return;
     }
     statusEl.textContent = '';
@@ -477,13 +566,24 @@ async function main() {
       h2.appendChild(hideBtn);
       section.appendChild(h2);
 
+      const meta = document.createElement('div');
+      meta.className = 'film-meta';
+
       const runtimeText = formatRuntime(film.runtimeMinutes);
-      if (runtimeText) {
-        const runtime = document.createElement('p');
-        runtime.className = 'runtime';
-        runtime.textContent = runtimeText;
-        section.appendChild(runtime);
-      }
+      const runtime = document.createElement('p');
+      runtime.className = 'runtime';
+      runtime.textContent = runtimeText;
+      meta.appendChild(runtime);
+
+      const curzonLink = document.createElement('a');
+      curzonLink.className = 'curzon-link';
+      curzonLink.href = filmUrl(filmId);
+      curzonLink.target = '_blank';
+      curzonLink.rel = 'noopener';
+      curzonLink.textContent = 'View on curzon.com ↗';
+      meta.appendChild(curzonLink);
+
+      section.appendChild(meta);
 
       if (film.description) {
         const p = document.createElement('p');
