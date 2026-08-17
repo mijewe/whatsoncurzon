@@ -107,10 +107,34 @@
     margin-bottom: 40px;
   }
   section.film h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 1.3rem;
     border-bottom: 2px solid var(--fg);
     padding-bottom: 6px;
     margin-bottom: 4px;
+  }
+  section.film h2 .film-title {
+    flex: 1;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 2px;
+    margin: 0;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .icon-btn:hover {
+    color: var(--accent);
+  }
+  .icon-btn svg {
+    width: 16px;
+    height: 16px;
   }
   section.film p.runtime {
     margin: 0 0 8px;
@@ -172,6 +196,50 @@
     cursor: not-allowed;
     pointer-events: none;
   }
+  .hidden-section {
+    margin-top: 24px;
+  }
+  .hidden-section summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 4px 0;
+  }
+  .hidden-list {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .hidden-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .unhide-btn {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 4px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  .unhide-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .unhide-btn svg {
+    width: 14px;
+    height: 14px;
+  }
   footer {
     margin-top: 40px;
     color: var(--muted);
@@ -222,6 +290,21 @@ function saveFavourites(ids) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
 }
 
+const HIDDEN_STORAGE_KEY = 'curzon-hidden-films';
+
+function loadHiddenFilms() {
+  try {
+    const raw = localStorage.getItem(HIDDEN_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHiddenFilms(ids) {
+  localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(ids));
+}
+
 function formatDateLabel(dateStr, todayStr) {
   const d = new Date(dateStr + 'T12:00:00Z');
   const weekday = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
@@ -263,6 +346,10 @@ function citymapperUrl(site) {
 
 const PIN_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
 
+const EYE_OFF_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>`;
+
+const EYE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+
 async function main() {
   const statusEl = document.getElementById('status');
   const dateSelect = document.getElementById('date-select');
@@ -296,6 +383,8 @@ async function main() {
   const favouriteIds = new Set(
     savedFavourites ? savedFavourites.filter((id) => data.sites.some((s) => s.id === id)) : data.sites.map((s) => s.id)
   );
+
+  const hiddenFilmIds = new Set(loadHiddenFilms());
 
   function renderCinemaPicker() {
     cinemaPicker.innerHTML = '';
@@ -356,13 +445,36 @@ async function main() {
       return earliest(a[1]) - earliest(b[1]);
     });
 
-    for (const [filmId, bySite] of filmsSorted) {
+    const visibleFilms = filmsSorted.filter(([filmId]) => !hiddenFilmIds.has(filmId));
+    const hiddenFilms = filmsSorted.filter(([filmId]) => hiddenFilmIds.has(filmId));
+
+    if (visibleFilms.length === 0) {
+      statusEl.textContent = 'Everything on today is hidden — see the hidden films list below, or try another date.';
+    }
+
+    for (const [filmId, bySite] of visibleFilms) {
       const film = data.films[filmId] || { title: filmId, description: '', runtimeMinutes: null };
       const section = document.createElement('section');
       section.className = 'film';
 
       const h2 = document.createElement('h2');
-      h2.textContent = film.title;
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'film-title';
+      titleSpan.textContent = film.title;
+      h2.appendChild(titleSpan);
+
+      const hideBtn = document.createElement('button');
+      hideBtn.type = 'button';
+      hideBtn.className = 'icon-btn';
+      hideBtn.title = 'Hide this film';
+      hideBtn.setAttribute('aria-label', `Hide ${film.title}`);
+      hideBtn.innerHTML = EYE_OFF_ICON_SVG;
+      hideBtn.addEventListener('click', () => {
+        hiddenFilmIds.add(filmId);
+        saveHiddenFilms([...hiddenFilmIds]);
+        render();
+      });
+      h2.appendChild(hideBtn);
       section.appendChild(h2);
 
       const runtimeText = formatRuntime(film.runtimeMinutes);
@@ -429,6 +541,42 @@ async function main() {
       }
 
       resultsEl.appendChild(section);
+    }
+
+    if (hiddenFilms.length > 0) {
+      const details = document.createElement('details');
+      details.className = 'hidden-section';
+
+      const summary = document.createElement('summary');
+      summary.textContent = `Hidden films (${hiddenFilms.length})`;
+      details.appendChild(summary);
+
+      const list = document.createElement('div');
+      list.className = 'hidden-list';
+      for (const [filmId] of hiddenFilms) {
+        const film = data.films[filmId] || { title: filmId };
+        const item = document.createElement('div');
+        item.className = 'hidden-list-item';
+
+        const title = document.createElement('span');
+        title.textContent = film.title;
+        item.appendChild(title);
+
+        const unhideBtn = document.createElement('button');
+        unhideBtn.type = 'button';
+        unhideBtn.className = 'unhide-btn';
+        unhideBtn.innerHTML = `${EYE_ICON_SVG}<span>Unhide</span>`;
+        unhideBtn.addEventListener('click', () => {
+          hiddenFilmIds.delete(filmId);
+          saveHiddenFilms([...hiddenFilmIds]);
+          render();
+        });
+        item.appendChild(unhideBtn);
+
+        list.appendChild(item);
+      }
+      details.appendChild(list);
+      resultsEl.appendChild(details);
     }
   }
 
