@@ -10,12 +10,14 @@
 // The API itself also doesn't send CORS headers for cross-origin browser requests,
 // so none of this can happen client-side from the published GitHub Pages site either.
 import { chromium } from 'playwright';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '..', 'docs', 'data.json');
+const DESKTOP_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // Curated to London-area Curzon cinemas only. Full circuit also includes
 // Canterbury (CAN2), Colchester (COL1), Knutsford (KNU1) and Oxford (OXF1),
@@ -58,10 +60,7 @@ function upcomingLondonDates(count) {
 async function fetchAuthToken() {
   const browser = await chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage({
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    });
+    const page = await browser.newPage({ userAgent: DESKTOP_USER_AGENT });
     const resp = await page.goto(TOKEN_SOURCE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     if (!resp || !resp.ok()) {
       throw new Error(`Failed to load ${TOKEN_SOURCE_URL}: HTTP ${resp && resp.status()}`);
@@ -93,6 +92,133 @@ function siteIdsQuery(siteIds) {
   return siteIds.map((id) => `siteIds=${encodeURIComponent(id)}`).join('&');
 }
 
+// Rotten Tomatoes scores: Curzon's own data has none, and there's no free RT API
+// (discontinued years ago). OMDb (a free third-party aggregator) is the usual
+// workaround, but for a cinema listing site — mostly brand-new releases — OMDb's
+// mirror consistently lags RT's own site by days/weeks, so new films just show
+// nothing. RT's own /search page, however, isn't behind any bot-protection and
+// server-renders the film's URL directly into the HTML (as a
+// <search-page-media-row> custom element) — so we scrape that to find the film,
+// then fetch its own page for the Tomatometer (critics) and Popcornmeter
+// (audience) scores, both embedded as JSON.
+//
+// We cache the found url against the previous run's output regardless of
+// whether a score was available yet, so a film with no score *yet* skips
+// straight to re-fetching its already-known page next run rather than
+// re-running the (fuzzier, riskier) search again.
+async function loadPreviousRottenTomatoes() {
+  try {
+    const previous = JSON.parse(await readFile(OUT_PATH, 'utf8'));
+    const entries = {};
+    for (const [filmId, film] of Object.entries(previous.films || {})) {
+      if (film.rottenTomatoes) entries[filmId] = film.rottenTomatoes;
+    }
+    return entries;
+  } catch {
+    return {};
+  }
+}
+
+// Curzon prefixes repertory/season screenings with a strand name ("Curzon Film 50:
+// Parasite", "EXHIBITION ON SCREEN: Monet"). The real film title is what follows.
+const STRAND_PREFIXES = [
+  'Curzon Film 50',
+  'DocHouse',
+  'EXHIBITION ON SCREEN',
+  'National Theatre Live',
+  'Kids Club',
+  'Ukrainian Film Fest',
+  'Sudanese Cinema',
+];
+
+function parseFilmQueryTitle(title) {
+  const match = title.match(/^([^:]+):\s*(.+)$/);
+  if (match && STRAND_PREFIXES.includes(match[1].trim())) {
+    // Curzon's releaseDate here is the re-release screening date, not the
+    // original film's year, so don't use it to filter RT's search results.
+    return { queryTitle: match[2].trim(), useYearHint: false };
+  }
+  return { queryTitle: title, useYearHint: true };
+}
+
+function extractRottenTomatoesMovieResults(html) {
+  const blockMatch = html.match(/<search-page-result[^>]*type="movie"[\s\S]*?<\/search-page-result>/);
+  if (!blockMatch) return [];
+  const rows = [...blockMatch[0].matchAll(/<search-page-media-row([^>]*)>([\s\S]*?)<\/search-page-media-row>/g)];
+  return rows.map(([, attrs, inner]) => {
+    const attr = (name) => attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? null;
+    const hrefMatch = inner.match(/href="(https:\/\/www\.rottentomatoes\.com\/m\/[^"]+)"/);
+    const titleMatch = inner.match(/data-qa="info-name"[^>]*>\s*([^<]+?)\s*</);
+    return {
+      title: titleMatch ? titleMatch[1].trim() : null,
+      releaseYear: attr('release-year'),
+      url: hrefMatch ? hrefMatch[1] : null,
+    };
+  });
+}
+
+function normalizeTitle(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Curzon sometimes appends a cosmetic qualifier Rotten Tomatoes won't have in
+// its title, e.g. "The Sacrifice (4K Restoration)" or "Plane Film + Q&A".
+function stripQualifierSuffix(title) {
+  return title.replace(/\s*[(+].*$/, '').trim();
+}
+
+// RT's search is a loose, Google-style relevance search, not an exact-title
+// lookup — for anything obscure (shorts, arthouse, foreign titles under a
+// different English name) its top "movie" hit is often a wrong film that just
+// shares a word or phrase ("Planet Israel" -> "Kingdom of the Planet of the
+// Apes", "Gaza's Twins, Come Back to Me" -> "Come Back to Me"). A same-or-
+// prefix substring check lets through exactly that kind of false positive, so
+// this requires an exact match (after stripping the qualifier suffix above).
+function titleReasonablyMatches(resultTitle, queryTitle) {
+  if (!resultTitle) return false;
+  return normalizeTitle(resultTitle) === normalizeTitle(stripQualifierSuffix(queryTitle));
+}
+
+async function findRottenTomatoesUrl(title, expectedYear) {
+  const res = await fetch(`https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}`, {
+    headers: { 'User-Agent': DESKTOP_USER_AGENT },
+  });
+  if (!res.ok) return null;
+  const results = extractRottenTomatoesMovieResults(await res.text()).filter((r) =>
+    titleReasonablyMatches(r.title, title)
+  );
+  if (results.length === 0) return null;
+  const best = (expectedYear && results.find((r) => r.releaseYear === String(expectedYear))) || results[0];
+  return best.url ? { url: best.url, releaseYear: best.releaseYear ? Number(best.releaseYear) : null } : null;
+}
+
+// The Tomatometer (critics) and Popcornmeter (audience) scores aren't on the
+// search page — only on the film's own page, each embedded as a flat JSON
+// object like `"criticsScore":{...,"score":"90",...}`.
+function extractScoreFromPage(html, key) {
+  const blockMatch = html.match(new RegExp(`"${key}":\\{[^}]*\\}`));
+  if (!blockMatch) return null;
+  const scoreMatch = blockMatch[0].match(/"score":"(\d+)"/);
+  return scoreMatch ? Number(scoreMatch[1]) : null;
+}
+
+async function fetchRottenTomatoesScores(url) {
+  const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_USER_AGENT } });
+  if (!res.ok) return { criticsScore: null, audienceScore: null };
+  const html = await res.text();
+  return {
+    criticsScore: extractScoreFromPage(html, 'criticsScore'),
+    audienceScore: extractScoreFromPage(html, 'audienceScore'),
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function main() {
   console.log('Fetching auth token via headless browser...');
   const { apiUrl, token } = await fetchAuthToken();
@@ -120,6 +246,7 @@ async function main() {
 
   console.log('Fetching film metadata for each site...');
   const films = {};
+  const releaseYearsByFilmId = {};
   for (const site of sites) {
     const filmsResp = await apiGet(apiUrl, token, `/ocapi/v1/sites/${site.id}/films`);
     for (const f of filmsResp.films) {
@@ -129,7 +256,49 @@ async function main() {
         description: (f.shortSynopsis && f.shortSynopsis.text) || (f.synopsis && f.synopsis.text) || '',
         runtimeMinutes: f.runtimeInMinutes ?? null,
       };
+      if (f.releaseDate) releaseYearsByFilmId[f.id] = f.releaseDate.slice(0, 4);
     }
+  }
+
+  console.log('Fetching Rotten Tomatoes scores/links...');
+  const previousRottenTomatoes = await loadPreviousRottenTomatoes();
+  for (const [filmId, film] of Object.entries(films)) {
+    const { queryTitle, useYearHint } = parseFilmQueryTitle(film.title);
+    // Curzon's own releaseDate is reliable for current releases, but reflects
+    // the *re-release* screening date for strand-prefixed classics — so it's
+    // only trustworthy as a release-year fallback when useYearHint is true.
+    const curzonYearHint = releaseYearsByFilmId[filmId] ? Number(releaseYearsByFilmId[filmId]) : null;
+
+    const cached = previousRottenTomatoes[filmId];
+    if (cached && cached.criticsScore != null) {
+      film.rottenTomatoes = cached;
+      film.releaseYear = cached.releaseYear ?? (useYearHint ? curzonYearHint : null);
+      continue;
+    }
+
+    let url = cached && cached.url;
+    let releaseYear = cached && cached.releaseYear;
+    if (!url) {
+      const found = await findRottenTomatoesUrl(queryTitle, useYearHint ? curzonYearHint : null);
+      url = found && found.url;
+      releaseYear = found && found.releaseYear;
+      await delay(250);
+    }
+
+    if (!url) {
+      film.rottenTomatoes = null;
+      film.releaseYear = useYearHint ? curzonYearHint : null;
+      console.log(`  ${film.title}: not found`);
+      continue;
+    }
+
+    const scores = await fetchRottenTomatoesScores(url);
+    film.rottenTomatoes = { url, releaseYear, ...scores };
+    film.releaseYear = releaseYear ?? (useYearHint ? curzonYearHint : null);
+    console.log(
+      `  ${film.title}: ${film.releaseYear ?? '?'} critics ${scores.criticsScore ?? '?'}% / audience ${scores.audienceScore ?? '?'}% ${url}`
+    );
+    await delay(250);
   }
 
   console.log(`Fetching showtimes for ${DAYS_AHEAD} days across ${sites.length} sites...`);

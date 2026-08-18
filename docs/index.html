@@ -150,12 +150,31 @@
     gap: 12px;
     margin: 0 0 8px;
   }
-  section.film p.runtime {
+  .film-meta-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .meta-separator {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1;
+  }
+  .runtime {
     margin: 0;
     color: var(--muted);
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  .rt-score {
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .rt-score:hover {
+    color: var(--accent);
   }
   .curzon-link {
     flex-shrink: 0;
@@ -569,11 +588,53 @@ async function main() {
       const meta = document.createElement('div');
       meta.className = 'film-meta';
 
+      const metaLeft = document.createElement('div');
+      metaLeft.className = 'film-meta-left';
+
+      // Every segment (runtime, year, RT scores) is its own flex item, all
+      // separated by identical dots, so the spacing around each dot matches.
+      function appendMetaSegment(el) {
+        if (metaLeft.childElementCount > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'meta-separator';
+          sep.textContent = '·';
+          metaLeft.appendChild(sep);
+        }
+        metaLeft.appendChild(el);
+      }
+
       const runtimeText = formatRuntime(film.runtimeMinutes);
-      const runtime = document.createElement('p');
-      runtime.className = 'runtime';
-      runtime.textContent = runtimeText;
-      meta.appendChild(runtime);
+      if (runtimeText) {
+        const runtime = document.createElement('span');
+        runtime.className = 'runtime';
+        runtime.textContent = runtimeText;
+        appendMetaSegment(runtime);
+      }
+
+      if (film.releaseYear) {
+        const year = document.createElement('span');
+        year.className = 'runtime';
+        year.textContent = film.releaseYear;
+        appendMetaSegment(year);
+      }
+
+      if (film.rottenTomatoes) {
+        const rt = film.rottenTomatoes;
+        const parts = [];
+        if (rt.criticsScore != null) parts.push(`🍅 ${rt.criticsScore}%`);
+        if (rt.audienceScore != null) parts.push(`🍿 ${rt.audienceScore}%`);
+
+        const rtScore = document.createElement('a');
+        rtScore.className = 'rt-score';
+        rtScore.href = rt.url;
+        rtScore.target = '_blank';
+        rtScore.rel = 'noopener';
+        rtScore.textContent = parts.length ? parts.join(' ') : 'View on Rotten Tomatoes';
+        rtScore.title = 'View on Rotten Tomatoes';
+        appendMetaSegment(rtScore);
+      }
+
+      meta.appendChild(metaLeft);
 
       const curzonLink = document.createElement('a');
       curzonLink.className = 'curzon-link';

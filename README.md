@@ -23,6 +23,15 @@ a page hosted on GitHub Pages can't call it directly from the browser. Instead:
 - `docs/index.html` is a plain static page: date picker, a cinema picker whose
   selection is saved to `localStorage`, and a render of `docs/data.json` grouped by
   cinema → film → times.
+- Rotten Tomatoes scores and links come straight from RT's own `/search` page
+  (Curzon's data has none, and there's no free RT API). Unlike OMDb-style
+  aggregators, RT's own site has the score the moment RT publishes it — no lag
+  for brand-new releases. RT's search is a loose relevance search, not an exact
+  lookup, so a result only counts if its own title actually matches the film we
+  searched for; anything that doesn't match closely enough is treated as "no RT
+  page found" rather than risk showing a wrong film's score. Found scores are
+  cached in `docs/data.json` and not re-checked; a film found on RT but without
+  a score yet is re-checked every run until it gets one.
 
 ## Hosting on GitHub Pages
 
