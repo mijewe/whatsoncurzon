@@ -21,12 +21,18 @@ jobs:
 
       - run: npm install
       - run: npx playwright install --with-deps chromium
-      - run: npm run refresh
 
-      - name: Commit updated data.json
+      # Each site is scraped independently — one breaking (e.g. a site
+      # redesign) shouldn't block the other's data from refreshing and
+      # being committed. A failure here is still visible as a workflow
+      # warning, just not fatal to the job.
+      - run: npm run refresh || echo "::warning::Curzon refresh failed"
+      - run: npm run refresh:thelight || echo "::warning::The Light refresh failed"
+
+      - name: Commit updated data.json files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data.json
+          git add docs/data.json docs/thelight/data.json
           git diff --staged --quiet || git commit -m "Refresh showtimes data"
           git push

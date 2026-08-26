@@ -5,7 +5,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "refresh": "node scripts/fetch-showtimes.mjs"
+    "refresh": "node scripts/fetch-showtimes.mjs",
+    "refresh:thelight": "node scripts/fetch-thelight.mjs",
+    "refresh:all": "npm run refresh && npm run refresh:thelight"
   },
   "license": "ISC",
   "devDependencies": {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Curzon, but better</title>
+<title>The Light Sheffield, but better</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -14,7 +14,6 @@
     --accent: #c9184a;
     --accent-fg: #ffffff;
     --chip-bg: #f4f4f4;
-    --chip-bg-sold-out: #f4f4f4;
     --card-bg: #fafafa;
   }
   @media (prefers-color-scheme: dark) {
@@ -26,7 +25,6 @@
       --accent: #ff5c8a;
       --accent-fg: #16181a;
       --chip-bg: #24262a;
-      --chip-bg-sold-out: #24262a;
       --card-bg: #1d1f22;
     }
   }
@@ -48,16 +46,9 @@
     margin: 0 0 4px;
   }
   header p.tagline {
-    margin: 0 0 8px;
+    margin: 0 0 24px;
     color: var(--muted);
     font-size: 0.9rem;
-  }
-  .nav-link {
-    color: var(--muted);
-    font-size: 0.8rem;
-  }
-  header p:has(.nav-link) {
-    margin: 0 0 24px;
   }
   .controls {
     display: flex;
@@ -73,7 +64,7 @@
     color: var(--muted);
     margin-bottom: 6px;
   }
-  select[type="date"], input[type="date"], input[type="time"], select {
+  select, input[type="time"] {
     font-size: 1rem;
     padding: 8px 10px;
     border-radius: 8px;
@@ -87,29 +78,6 @@
   }
   input[type="time"]:disabled {
     opacity: 0.5;
-  }
-  .cinema-picker {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .cinema-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--card-bg);
-    cursor: pointer;
-    font-size: 0.85rem;
-    user-select: none;
-  }
-  .cinema-toggle input { display: none; }
-  .cinema-toggle.active {
-    background: var(--accent);
-    color: var(--accent-fg);
-    border-color: var(--accent);
   }
   .status {
     color: var(--muted);
@@ -183,41 +151,20 @@
   .rt-score:hover {
     color: var(--accent);
   }
-  .curzon-link {
+  .venue-link {
     flex-shrink: 0;
     font-size: 0.8rem;
     color: var(--muted);
     text-decoration: none;
     white-space: nowrap;
   }
-  .curzon-link:hover {
+  .venue-link:hover {
     color: var(--accent);
   }
   section.film p.desc {
     margin: 0 0 16px;
     color: var(--muted);
     font-size: 0.9rem;
-  }
-  .cinema-group {
-    margin-bottom: 16px;
-  }
-  .cinema-group h3 {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.95rem;
-    margin: 0 0 6px;
-  }
-  .citymapper-link {
-    display: inline-flex;
-    color: var(--muted);
-  }
-  .citymapper-link:hover {
-    color: var(--accent);
-  }
-  .citymapper-link svg {
-    width: 14px;
-    height: 14px;
   }
   .times {
     display: flex;
@@ -237,14 +184,6 @@
   a.time-chip:hover {
     background: var(--accent);
     color: var(--accent-fg);
-  }
-  .time-chip.sold-out {
-    background: var(--chip-bg-sold-out);
-    color: var(--muted);
-    text-decoration: line-through;
-    opacity: 0.45;
-    cursor: not-allowed;
-    pointer-events: none;
   }
   .hidden-section {
     margin-top: 24px;
@@ -318,9 +257,8 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Curzon, but better</h1>
-    <p class="tagline">See what's on at your favourite Curzon cinemas</p>
-    <p><a class="nav-link" href="thelight/">↔ Switch to The Light Sheffield</a></p>
+    <h1>The Light Sheffield, but better</h1>
+    <p class="tagline" id="tagline-text">See what's on at The Light Sheffield</p>
   </header>
 
   <div class="controls">
@@ -339,10 +277,6 @@
         <input type="time" id="time-filter-value">
       </div>
     </div>
-    <div class="field">
-      <label>Cinemas</label>
-      <div class="cinema-picker" id="cinema-picker"></div>
-    </div>
   </div>
 
   <div id="status" class="status"></div>
@@ -358,22 +292,7 @@
 </div>
 
 <script>
-const STORAGE_KEY = 'curzon-favourite-cinemas';
-
-function loadFavourites() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveFavourites(ids) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
-}
-
-const HIDDEN_STORAGE_KEY = 'curzon-hidden-films';
+const HIDDEN_STORAGE_KEY = 'thelight-hidden-films';
 
 function loadHiddenFilms() {
   try {
@@ -388,7 +307,7 @@ function saveHiddenFilms(ids) {
   localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(ids));
 }
 
-const TIME_FILTER_STORAGE_KEY = 'curzon-time-filter';
+const TIME_FILTER_STORAGE_KEY = 'thelight-time-filter';
 
 function loadTimeFilter() {
   try {
@@ -442,26 +361,6 @@ function formatRuntime(minutes) {
   return `${h}h ${m}m`;
 }
 
-function bookingUrl(showtimeId) {
-  return `https://www.curzon.com/ticketing/seats/${showtimeId}/`;
-}
-
-function filmUrl(filmId) {
-  // The slug segment is cosmetic — curzon.com routes on the film ID alone.
-  return `https://www.curzon.com/films/film/${filmId}/`;
-}
-
-function citymapperUrl(site) {
-  const params = new URLSearchParams({
-    endcoord: `${site.latitude},${site.longitude}`,
-    endname: `Curzon ${site.name}`,
-    endaddress: site.address,
-  });
-  return `https://citymapper.com/directions?${params}`;
-}
-
-const PIN_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
-
 const EYE_OFF_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>`;
 
 const EYE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -471,9 +370,9 @@ async function main() {
   const dateSelect = document.getElementById('date-select');
   const timeFilterMode = document.getElementById('time-filter-mode');
   const timeFilterValue = document.getElementById('time-filter-value');
-  const cinemaPicker = document.getElementById('cinema-picker');
   const resultsEl = document.getElementById('results');
   const footerEl = document.getElementById('footer-text');
+  const taglineText = document.getElementById('tagline-text');
 
   let data;
   try {
@@ -486,21 +385,16 @@ async function main() {
     return;
   }
 
+  taglineText.textContent = `See what's on at The Light ${data.venue.name}`;
+
   const todayStr = data.days[0];
 
-  // Date picker
   for (const day of data.days) {
     const opt = document.createElement('option');
     opt.value = day;
     opt.textContent = formatDateLabel(day, todayStr);
     dateSelect.appendChild(opt);
   }
-
-  // Cinema picker, restoring favourites (default: all selected on first visit)
-  const savedFavourites = loadFavourites();
-  const favouriteIds = new Set(
-    savedFavourites ? savedFavourites.filter((id) => data.sites.some((s) => s.id === id)) : data.sites.map((s) => s.id)
-  );
 
   const hiddenFilmIds = new Set(loadHiddenFilms());
 
@@ -521,64 +415,30 @@ async function main() {
     render();
   });
 
-  function renderCinemaPicker() {
-    cinemaPicker.innerHTML = '';
-    for (const site of data.sites) {
-      const label = document.createElement('label');
-      label.className = 'cinema-toggle' + (favouriteIds.has(site.id) ? ' active' : '');
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = favouriteIds.has(site.id);
-      checkbox.addEventListener('change', () => {
-        if (checkbox.checked) favouriteIds.add(site.id);
-        else favouriteIds.delete(site.id);
-        saveFavourites([...favouriteIds]);
-        label.classList.toggle('active', checkbox.checked);
-        render();
-      });
-      label.appendChild(checkbox);
-      label.appendChild(document.createTextNode(site.name));
-      cinemaPicker.appendChild(label);
-    }
-  }
-
   function render() {
     const date = dateSelect.value;
-    const dayData = data.showtimesByDate[date] || {};
+    const showtimes = data.showtimesByDate[date] || [];
     resultsEl.innerHTML = '';
     statusEl.classList.remove('error');
 
-    if (favouriteIds.size === 0) {
-      statusEl.textContent = 'Pick at least one cinema above.';
-      return;
-    }
-
-    const selectedSites = data.sites.filter((s) => favouriteIds.has(s.id));
-    const siteById = new Map(selectedSites.map((s) => [s.id, s]));
-
-    // filmId -> siteId -> showtimes[]
+    // filmId -> showtimes[]
     const byFilm = new Map();
-    for (const site of selectedSites) {
-      const showtimes = dayData[site.id] || [];
-      for (const st of showtimes) {
-        if (!matchesTimeFilter(st.startsAt, timeFilter)) continue;
-        if (!byFilm.has(st.filmId)) byFilm.set(st.filmId, new Map());
-        const bySite = byFilm.get(st.filmId);
-        if (!bySite.has(site.id)) bySite.set(site.id, []);
-        bySite.get(site.id).push(st);
-      }
+    for (const st of showtimes) {
+      if (!matchesTimeFilter(st.startsAt, timeFilter)) continue;
+      if (!byFilm.has(st.filmId)) byFilm.set(st.filmId, []);
+      byFilm.get(st.filmId).push(st);
     }
 
     if (byFilm.size === 0) {
       const filterNote = timeFilter.mode !== 'any' && timeFilter.time ? ` ${timeFilter.mode} ${timeFilter.time}` : '';
-      statusEl.textContent = `Nothing found for your chosen cinemas${filterNote} on this date.`;
+      statusEl.textContent = `Nothing found${filterNote} on this date.`;
       return;
     }
     statusEl.textContent = '';
 
-    // Films ordered by their earliest showtime across the selected cinemas.
+    // Films ordered by their earliest showtime.
     const filmsSorted = [...byFilm.entries()].sort((a, b) => {
-      const earliest = (bySite) => Math.min(...[...bySite.values()].flat().map((t) => Date.parse(t.startsAt)));
+      const earliest = (times) => Math.min(...times.map((t) => Date.parse(t.startsAt)));
       return earliest(a[1]) - earliest(b[1]);
     });
 
@@ -589,8 +449,10 @@ async function main() {
       statusEl.textContent = 'Everything on today is hidden — see the hidden films list below, or try another date.';
     }
 
-    for (const [filmId, bySite] of visibleFilms) {
+    for (const [filmId, times] of visibleFilms) {
       const film = data.films[filmId] || { title: filmId, description: '', runtimeMinutes: null };
+      times.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+
       const section = document.createElement('section');
       section.className = 'film';
 
@@ -620,8 +482,6 @@ async function main() {
       const metaLeft = document.createElement('div');
       metaLeft.className = 'film-meta-left';
 
-      // Every segment (runtime, year, RT scores) is its own flex item, all
-      // separated by identical dots, so the spacing around each dot matches.
       function appendMetaSegment(el) {
         if (metaLeft.childElementCount > 0) {
           const sep = document.createElement('span');
@@ -665,13 +525,15 @@ async function main() {
 
       meta.appendChild(metaLeft);
 
-      const curzonLink = document.createElement('a');
-      curzonLink.className = 'curzon-link';
-      curzonLink.href = filmUrl(filmId);
-      curzonLink.target = '_blank';
-      curzonLink.rel = 'noopener';
-      curzonLink.textContent = 'View on curzon.com ↗';
-      meta.appendChild(curzonLink);
+      if (film.url) {
+        const venueLink = document.createElement('a');
+        venueLink.className = 'venue-link';
+        venueLink.href = film.url;
+        venueLink.target = '_blank';
+        venueLink.rel = 'noopener';
+        venueLink.textContent = 'View & book on thelight.co.uk ↗';
+        meta.appendChild(venueLink);
+      }
 
       section.appendChild(meta);
 
@@ -682,53 +544,23 @@ async function main() {
         section.appendChild(p);
       }
 
-      const sitesSorted = [...bySite.entries()].sort((a, b) =>
-        siteById.get(a[0]).name.localeCompare(siteById.get(b[0]).name)
-      );
-
-      for (const [siteId, times] of sitesSorted) {
-        times.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-
-        const group = document.createElement('div');
-        group.className = 'cinema-group';
-
-        const site = siteById.get(siteId);
-        const h3 = document.createElement('h3');
-        h3.appendChild(document.createTextNode(site.name));
-        const mapLink = document.createElement('a');
-        mapLink.className = 'citymapper-link';
-        mapLink.href = citymapperUrl(site);
-        mapLink.target = '_blank';
-        mapLink.rel = 'noopener';
-        mapLink.title = 'Directions via Citymapper';
-        mapLink.setAttribute('aria-label', `Directions to ${site.name} via Citymapper`);
-        mapLink.innerHTML = PIN_ICON_SVG;
-        h3.appendChild(mapLink);
-        group.appendChild(h3);
-
-        const timesDiv = document.createElement('div');
-        timesDiv.className = 'times';
-        for (const t of times) {
-          if (t.isSoldOut) {
-            const chip = document.createElement('span');
-            chip.className = 'time-chip sold-out';
-            chip.textContent = formatTimeRange(t.startsAt, t.endsAt);
-            chip.title = 'Sold out';
-            chip.setAttribute('aria-disabled', 'true');
-            timesDiv.appendChild(chip);
-            continue;
-          }
-          const chip = document.createElement('a');
-          chip.className = 'time-chip';
-          chip.textContent = formatTimeRange(t.startsAt, t.endsAt);
-          chip.href = bookingUrl(t.id);
+      // The Light's booking flow is a JS overlay with no deep-linkable URL
+      // per showtime, so every time links to the film's own booking page —
+      // still one click away from picking that exact time.
+      const timesDiv = document.createElement('div');
+      timesDiv.className = 'times';
+      for (const t of times) {
+        const chip = document.createElement('a');
+        chip.className = 'time-chip';
+        chip.textContent = formatTimeRange(t.startsAt, t.endsAt);
+        if (film.url) {
+          chip.href = film.url;
           chip.target = '_blank';
           chip.rel = 'noopener';
-          timesDiv.appendChild(chip);
         }
-        group.appendChild(timesDiv);
-        section.appendChild(group);
+        timesDiv.appendChild(chip);
       }
+      section.appendChild(timesDiv);
 
       resultsEl.appendChild(section);
     }
@@ -770,12 +602,11 @@ async function main() {
     }
   }
 
-  renderCinemaPicker();
   dateSelect.addEventListener('change', render);
   render();
 
   const generated = new Date(data.generatedAt);
-  footerEl.textContent = `Listings last refreshed ${generated.toLocaleString('en-GB')}. Not affiliated with Curzon.`;
+  footerEl.textContent = `Listings last refreshed ${generated.toLocaleString('en-GB')}. Not affiliated with The Light.`;
 }
 
 main();

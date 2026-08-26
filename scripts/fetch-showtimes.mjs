@@ -13,11 +13,10 @@ import { chromium } from 'playwright';
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DESKTOP_USER_AGENT, lookupRottenTomatoes } from './lib/rotten-tomatoes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '..', 'docs', 'data.json');
-const DESKTOP_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // Curated to London-area Curzon cinemas only. Full circuit also includes
 // Canterbury (CAN2), Colchester (COL1), Knutsford (KNU1) and Oxford (OXF1),
@@ -141,84 +140,6 @@ function parseFilmQueryTitle(title) {
   return { queryTitle: title, useYearHint: true };
 }
 
-function extractRottenTomatoesMovieResults(html) {
-  const blockMatch = html.match(/<search-page-result[^>]*type="movie"[\s\S]*?<\/search-page-result>/);
-  if (!blockMatch) return [];
-  const rows = [...blockMatch[0].matchAll(/<search-page-media-row([^>]*)>([\s\S]*?)<\/search-page-media-row>/g)];
-  return rows.map(([, attrs, inner]) => {
-    const attr = (name) => attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? null;
-    const hrefMatch = inner.match(/href="(https:\/\/www\.rottentomatoes\.com\/m\/[^"]+)"/);
-    const titleMatch = inner.match(/data-qa="info-name"[^>]*>\s*([^<]+?)\s*</);
-    return {
-      title: titleMatch ? titleMatch[1].trim() : null,
-      releaseYear: attr('release-year'),
-      url: hrefMatch ? hrefMatch[1] : null,
-    };
-  });
-}
-
-function normalizeTitle(title) {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-// Curzon sometimes appends a cosmetic qualifier Rotten Tomatoes won't have in
-// its title, e.g. "The Sacrifice (4K Restoration)" or "Plane Film + Q&A".
-function stripQualifierSuffix(title) {
-  return title.replace(/\s*[(+].*$/, '').trim();
-}
-
-// RT's search is a loose, Google-style relevance search, not an exact-title
-// lookup — for anything obscure (shorts, arthouse, foreign titles under a
-// different English name) its top "movie" hit is often a wrong film that just
-// shares a word or phrase ("Planet Israel" -> "Kingdom of the Planet of the
-// Apes", "Gaza's Twins, Come Back to Me" -> "Come Back to Me"). A same-or-
-// prefix substring check lets through exactly that kind of false positive, so
-// this requires an exact match (after stripping the qualifier suffix above).
-function titleReasonablyMatches(resultTitle, queryTitle) {
-  if (!resultTitle) return false;
-  return normalizeTitle(resultTitle) === normalizeTitle(stripQualifierSuffix(queryTitle));
-}
-
-async function findRottenTomatoesUrl(title, expectedYear) {
-  const res = await fetch(`https://www.rottentomatoes.com/search?search=${encodeURIComponent(title)}`, {
-    headers: { 'User-Agent': DESKTOP_USER_AGENT },
-  });
-  if (!res.ok) return null;
-  const results = extractRottenTomatoesMovieResults(await res.text()).filter((r) =>
-    titleReasonablyMatches(r.title, title)
-  );
-  if (results.length === 0) return null;
-  const best = (expectedYear && results.find((r) => r.releaseYear === String(expectedYear))) || results[0];
-  return best.url ? { url: best.url, releaseYear: best.releaseYear ? Number(best.releaseYear) : null } : null;
-}
-
-// The Tomatometer (critics) and Popcornmeter (audience) scores aren't on the
-// search page — only on the film's own page, each embedded as a flat JSON
-// object like `"criticsScore":{...,"score":"90",...}`.
-function extractScoreFromPage(html, key) {
-  const blockMatch = html.match(new RegExp(`"${key}":\\{[^}]*\\}`));
-  if (!blockMatch) return null;
-  const scoreMatch = blockMatch[0].match(/"score":"(\d+)"/);
-  return scoreMatch ? Number(scoreMatch[1]) : null;
-}
-
-async function fetchRottenTomatoesScores(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_USER_AGENT } });
-  if (!res.ok) return { criticsScore: null, audienceScore: null };
-  const html = await res.text();
-  return {
-    criticsScore: extractScoreFromPage(html, 'criticsScore'),
-    audienceScore: extractScoreFromPage(html, 'audienceScore'),
-  };
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function main() {
   console.log('Fetching auth token via headless browser...');
   const { apiUrl, token } = await fetchAuthToken();
@@ -269,36 +190,18 @@ async function main() {
     // only trustworthy as a release-year fallback when useYearHint is true.
     const curzonYearHint = releaseYearsByFilmId[filmId] ? Number(releaseYearsByFilmId[filmId]) : null;
 
-    const cached = previousRottenTomatoes[filmId];
-    if (cached && cached.criticsScore != null) {
-      film.rottenTomatoes = cached;
-      film.releaseYear = cached.releaseYear ?? (useYearHint ? curzonYearHint : null);
-      continue;
-    }
-
-    let url = cached && cached.url;
-    let releaseYear = cached && cached.releaseYear;
-    if (!url) {
-      const found = await findRottenTomatoesUrl(queryTitle, useYearHint ? curzonYearHint : null);
-      url = found && found.url;
-      releaseYear = found && found.releaseYear;
-      await delay(250);
-    }
-
-    if (!url) {
-      film.rottenTomatoes = null;
-      film.releaseYear = useYearHint ? curzonYearHint : null;
-      console.log(`  ${film.title}: not found`);
-      continue;
-    }
-
-    const scores = await fetchRottenTomatoesScores(url);
-    film.rottenTomatoes = { url, releaseYear, ...scores };
-    film.releaseYear = releaseYear ?? (useYearHint ? curzonYearHint : null);
-    console.log(
-      `  ${film.title}: ${film.releaseYear ?? '?'} critics ${scores.criticsScore ?? '?'}% / audience ${scores.audienceScore ?? '?'}% ${url}`
+    const { rottenTomatoes, releaseYear } = await lookupRottenTomatoes(
+      queryTitle,
+      useYearHint ? curzonYearHint : null,
+      previousRottenTomatoes[filmId]
     );
-    await delay(250);
+    film.rottenTomatoes = rottenTomatoes;
+    film.releaseYear = releaseYear;
+    console.log(
+      rottenTomatoes
+        ? `  ${film.title}: ${releaseYear ?? '?'} critics ${rottenTomatoes.criticsScore ?? '?'}% / audience ${rottenTomatoes.audienceScore ?? '?'}% ${rottenTomatoes.url}`
+        : `  ${film.title}: not found`
+    );
   }
 
   console.log(`Fetching showtimes for ${DAYS_AHEAD} days across ${sites.length} sites...`);
