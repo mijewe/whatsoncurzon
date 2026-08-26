@@ -131,6 +131,7 @@ async function main() {
         url: item.Url ? `${BASE_URL}${item.Url}` : null,
         rottenTomatoes,
         releaseYear,
+        ageRating: item.Cert || null,
       };
     }
 

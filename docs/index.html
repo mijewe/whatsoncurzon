@@ -48,16 +48,9 @@
     margin: 0 0 4px;
   }
   header p.tagline {
-    margin: 0 0 8px;
+    margin: 0 0 24px;
     color: var(--muted);
     font-size: 0.9rem;
-  }
-  .nav-link {
-    color: var(--muted);
-    font-size: 0.8rem;
-  }
-  header p:has(.nav-link) {
-    margin: 0 0 24px;
   }
   .controls {
     display: flex;
@@ -73,7 +66,7 @@
     color: var(--muted);
     margin-bottom: 6px;
   }
-  select[type="date"], input[type="date"], input[type="time"], select {
+  select, input[type="time"] {
     font-size: 1rem;
     padding: 8px 10px;
     border-radius: 8px;
@@ -87,6 +80,97 @@
   }
   input[type="time"]:disabled {
     opacity: 0.5;
+  }
+  .date-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .date-strip {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    padding: 2px;
+    scrollbar-width: none;
+  }
+  .date-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .date-chip {
+    flex: 0 0 auto;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  .date-chip.active {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
+  }
+  .date-arrow {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 1.1rem;
+  }
+  .date-arrow:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .date-arrow:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .coming-soon {
+    margin-bottom: 28px;
+  }
+  .coming-soon-details summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    padding: 4px 0;
+  }
+  .coming-soon-list {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .coming-soon-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .coming-soon-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .coming-soon-date {
+    color: var(--muted);
+    font-size: 0.75rem;
   }
   .cinema-picker {
     display: flex;
@@ -156,23 +240,44 @@
     justify-content: space-between;
     gap: 12px;
     margin: 0 0 8px;
+    flex-wrap: wrap;
   }
   .film-meta-left {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 14px;
   }
   .meta-separator {
     color: var(--muted);
     font-size: 0.8rem;
     line-height: 1;
+    white-space: nowrap;
   }
+  /* Official BBFC classification colours (from bbfc.co.uk's own icon fills). */
+  .age-rating {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #fff;
+    background: var(--muted);
+    white-space: nowrap;
+  }
+  .age-rating[data-rating="U"] { background: #0ac700; }
+  .age-rating[data-rating="PG"] { background: #fbad00; }
+  .age-rating[data-rating="12"], .age-rating[data-rating="12A"] { background: #ff7d13; }
+  .age-rating[data-rating="15"] { background: #fb4f93; }
+  .age-rating[data-rating="18"] { background: #dc0a0a; }
   .runtime {
     margin: 0;
     color: var(--muted);
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    white-space: nowrap;
   }
   .rt-score {
     font-size: 0.8rem;
@@ -185,13 +290,15 @@
   }
   .curzon-link {
     flex-shrink: 0;
-    font-size: 0.8rem;
+    display: inline-flex;
     color: var(--muted);
-    text-decoration: none;
-    white-space: nowrap;
   }
   .curzon-link:hover {
     color: var(--accent);
+  }
+  .curzon-link svg {
+    width: 16px;
+    height: 16px;
   }
   section.film p.desc {
     margin: 0 0 16px;
@@ -320,13 +427,18 @@
   <header>
     <h1>Curzon, but better</h1>
     <p class="tagline">See what's on at your favourite Curzon cinemas</p>
-    <p><a class="nav-link" href="thelight/">↔ Switch to The Light Sheffield</a></p>
   </header>
+
+  <div class="coming-soon" id="coming-soon"></div>
 
   <div class="controls">
     <div class="field">
-      <label for="date-select">Date</label>
-      <select id="date-select"></select>
+      <label>Date</label>
+      <div class="date-nav">
+        <button type="button" id="date-prev" class="date-arrow" aria-label="Previous day">‹</button>
+        <div class="date-strip" id="date-strip"></div>
+        <button type="button" id="date-next" class="date-arrow" aria-label="Next day">›</button>
+      </div>
     </div>
     <div class="field">
       <label for="time-filter-mode">Show times</label>
@@ -403,6 +515,21 @@ function saveTimeFilter(filter) {
   localStorage.setItem(TIME_FILTER_STORAGE_KEY, JSON.stringify(filter));
 }
 
+const COMING_SOON_OPEN_STORAGE_KEY = 'curzon-coming-soon-open';
+
+function loadComingSoonOpen() {
+  try {
+    const raw = localStorage.getItem(COMING_SOON_OPEN_STORAGE_KEY);
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function saveComingSoonOpen(open) {
+  localStorage.setItem(COMING_SOON_OPEN_STORAGE_KEY, String(open));
+}
+
 function timeOfDayMinutes(iso) {
   const d = new Date(iso);
   return d.getHours() * 60 + d.getMinutes();
@@ -416,12 +543,12 @@ function matchesTimeFilter(iso, filter) {
   return filter.mode === 'after' ? minutes >= cutoff : minutes < cutoff;
 }
 
-function formatDateLabel(dateStr, todayStr) {
+function formatDateChipLabel(dateStr, todayStr) {
+  if (dateStr === todayStr) return 'Today';
   const d = new Date(dateStr + 'T12:00:00Z');
   const weekday = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
-  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-  const label = `${weekday} ${day}`;
-  return dateStr === todayStr ? `Today — ${label}` : label;
+  const day = d.toLocaleDateString('en-GB', { day: 'numeric', timeZone: 'UTC' });
+  return `${weekday} ${day}`;
 }
 
 function formatTime(iso) {
@@ -462,17 +589,22 @@ function citymapperUrl(site) {
 
 const PIN_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
 
+const EXTERNAL_LINK_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>`;
+
 const EYE_OFF_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>`;
 
 const EYE_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
 async function main() {
   const statusEl = document.getElementById('status');
-  const dateSelect = document.getElementById('date-select');
+  const datePrevBtn = document.getElementById('date-prev');
+  const dateNextBtn = document.getElementById('date-next');
+  const dateStripEl = document.getElementById('date-strip');
   const timeFilterMode = document.getElementById('time-filter-mode');
   const timeFilterValue = document.getElementById('time-filter-value');
   const cinemaPicker = document.getElementById('cinema-picker');
   const resultsEl = document.getElementById('results');
+  const comingSoonEl = document.getElementById('coming-soon');
   const footerEl = document.getElementById('footer-text');
 
   let data;
@@ -488,13 +620,7 @@ async function main() {
 
   const todayStr = data.days[0];
 
-  // Date picker
-  for (const day of data.days) {
-    const opt = document.createElement('option');
-    opt.value = day;
-    opt.textContent = formatDateLabel(day, todayStr);
-    dateSelect.appendChild(opt);
-  }
+  let selectedDateIndex = 0;
 
   // Cinema picker, restoring favourites (default: all selected on first visit)
   const savedFavourites = loadFavourites();
@@ -542,8 +668,117 @@ async function main() {
     }
   }
 
+  function renderDateStrip() {
+    dateStripEl.innerHTML = '';
+    data.days.forEach((day, i) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'date-chip';
+      chip.textContent = formatDateChipLabel(day, todayStr);
+      chip.addEventListener('click', () => {
+        selectedDateIndex = i;
+        updateDateNav();
+        render();
+      });
+      dateStripEl.appendChild(chip);
+    });
+    updateDateNav();
+  }
+
+  function updateDateNav() {
+    [...dateStripEl.children].forEach((chip, i) => chip.classList.toggle('active', i === selectedDateIndex));
+    datePrevBtn.disabled = selectedDateIndex === 0;
+    dateNextBtn.disabled = selectedDateIndex === data.days.length - 1;
+    const activeChip = dateStripEl.children[selectedDateIndex];
+    if (activeChip) activeChip.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
+
+  datePrevBtn.addEventListener('click', () => {
+    if (selectedDateIndex > 0) {
+      selectedDateIndex--;
+      updateDateNav();
+      render();
+    }
+  });
+  dateNextBtn.addEventListener('click', () => {
+    if (selectedDateIndex < data.days.length - 1) {
+      selectedDateIndex++;
+      updateDateNav();
+      render();
+    }
+  });
+
+  function filmIdsShowingOnDate(date) {
+    const dayData = data.showtimesByDate[date] || {};
+    const ids = new Set();
+    for (const site of data.sites) {
+      if (!favouriteIds.has(site.id)) continue;
+      for (const st of dayData[site.id] || []) ids.add(st.filmId);
+    }
+    return ids;
+  }
+
+  // Films showing at some point in the next 7 days but not today — easy to
+  // miss one-off/repertory screenings if you only ever check today's date.
+  function computeComingThisWeek() {
+    const weekDays = data.days.slice(0, 7);
+    if (weekDays.length === 0) return [];
+    const todayFilmIds = filmIdsShowingOnDate(weekDays[0]);
+    const comingMap = new Map();
+    for (const day of weekDays.slice(1)) {
+      for (const filmId of filmIdsShowingOnDate(day)) {
+        if (hiddenFilmIds.has(filmId) || todayFilmIds.has(filmId) || comingMap.has(filmId)) continue;
+        comingMap.set(filmId, day);
+      }
+    }
+    return [...comingMap.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }
+
+  function renderComingSoon() {
+    comingSoonEl.innerHTML = '';
+    const items = computeComingThisWeek();
+    if (items.length === 0) return;
+
+    const details = document.createElement('details');
+    details.className = 'coming-soon-details';
+    details.open = loadComingSoonOpen();
+    details.addEventListener('toggle', () => saveComingSoonOpen(details.open));
+
+    const summary = document.createElement('summary');
+    summary.textContent = `Coming up this week (${items.length})`;
+    details.appendChild(summary);
+
+    const list = document.createElement('div');
+    list.className = 'coming-soon-list';
+    for (const [filmId, day] of items) {
+      const film = data.films[filmId] || { title: filmId };
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'coming-soon-chip';
+
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = film.title;
+      chip.appendChild(titleSpan);
+
+      const dateSpan = document.createElement('span');
+      dateSpan.className = 'coming-soon-date';
+      dateSpan.textContent = formatDateChipLabel(day, todayStr);
+      chip.appendChild(dateSpan);
+
+      chip.addEventListener('click', () => {
+        selectedDateIndex = data.days.indexOf(day);
+        updateDateNav();
+        render();
+      });
+      list.appendChild(chip);
+    }
+    details.appendChild(list);
+    comingSoonEl.appendChild(details);
+  }
+
   function render() {
-    const date = dateSelect.value;
+    renderComingSoon();
+    const date = data.days[selectedDateIndex];
     const dayData = data.showtimesByDate[date] || {};
     resultsEl.innerHTML = '';
     statusEl.classList.remove('error');
@@ -632,6 +867,15 @@ async function main() {
         metaLeft.appendChild(el);
       }
 
+      if (film.ageRating) {
+        const rating = document.createElement('span');
+        rating.className = 'age-rating';
+        rating.dataset.rating = film.ageRating;
+        rating.textContent = film.ageRating;
+        rating.title = 'BBFC age rating';
+        appendMetaSegment(rating);
+      }
+
       const runtimeText = formatRuntime(film.runtimeMinutes);
       if (runtimeText) {
         const runtime = document.createElement('span');
@@ -670,7 +914,9 @@ async function main() {
       curzonLink.href = filmUrl(filmId);
       curzonLink.target = '_blank';
       curzonLink.rel = 'noopener';
-      curzonLink.textContent = 'View on curzon.com ↗';
+      curzonLink.title = 'View on curzon.com';
+      curzonLink.setAttribute('aria-label', `View ${film.title} on curzon.com`);
+      curzonLink.innerHTML = EXTERNAL_LINK_ICON_SVG;
       meta.appendChild(curzonLink);
 
       section.appendChild(meta);
@@ -771,7 +1017,7 @@ async function main() {
   }
 
   renderCinemaPicker();
-  dateSelect.addEventListener('change', render);
+  renderDateStrip();
   render();
 
   const generated = new Date(data.generatedAt);

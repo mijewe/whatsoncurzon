@@ -168,8 +168,13 @@ async function main() {
   console.log('Fetching film metadata for each site...');
   const films = {};
   const releaseYearsByFilmId = {};
+  const censorRatingIdByFilmId = {};
+  const censorRatingsById = {};
   for (const site of sites) {
     const filmsResp = await apiGet(apiUrl, token, `/ocapi/v1/sites/${site.id}/films`);
+    for (const rating of (filmsResp.relatedData && filmsResp.relatedData.censorRatings) || []) {
+      censorRatingsById[rating.id] = rating.classification.text;
+    }
     for (const f of filmsResp.films) {
       if (films[f.id]) continue;
       films[f.id] = {
@@ -178,7 +183,15 @@ async function main() {
         runtimeMinutes: f.runtimeInMinutes ?? null,
       };
       if (f.releaseDate) releaseYearsByFilmId[f.id] = f.releaseDate.slice(0, 4);
+      if (f.censorRatingId) censorRatingIdByFilmId[f.id] = f.censorRatingId;
     }
+  }
+  // BBFC age rating (e.g. "12A", "15") — Curzon's API returns it as a
+  // censorRatingId per film, resolved against a ratings table returned
+  // alongside the film list (both already fetched above, no extra requests).
+  for (const [filmId, film] of Object.entries(films)) {
+    const ratingId = censorRatingIdByFilmId[filmId];
+    film.ageRating = ratingId ? censorRatingsById[ratingId] || null : null;
   }
 
   console.log('Fetching Rotten Tomatoes scores/links...');
