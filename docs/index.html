@@ -271,6 +271,27 @@
   .age-rating[data-rating="12"], .age-rating[data-rating="12A"] { background: #ff7d13; }
   .age-rating[data-rating="15"] { background: #fb4f93; }
   .age-rating[data-rating="18"] { background: #dc0a0a; }
+  .leaving-soon-badge,
+  .one-off-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.4;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    margin: -2px 0 8px;
+  }
+  .leaving-soon-badge {
+    color: #dc0a0a;
+    background: color-mix(in srgb, #dc0a0a 12%, transparent);
+  }
+  .one-off-badge {
+    color: #3b82f6;
+    background: color-mix(in srgb, #3b82f6 12%, transparent);
+  }
   .runtime {
     margin: 0;
     color: var(--muted);
@@ -609,7 +630,12 @@ async function main() {
 
   let data;
   try {
-    const res = await fetch('data.json', { cache: 'no-store' });
+    // A plain relative fetch resolves against the URL's directory, but a
+    // trailing-slash-less URL has no directory of its own, so it'd resolve
+    // one level up instead — GitHub Pages redirects to add the slash, but
+    // not every static host does.
+    const basePath = location.pathname.endsWith('/') ? location.pathname : `${location.pathname}/`;
+    const res = await fetch(`${basePath}data.json`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     data = await res.json();
   } catch (err) {
@@ -865,6 +891,20 @@ async function main() {
       });
       h2.appendChild(hideBtn);
       section.appendChild(h2);
+
+      if (film.leavingSoon) {
+        const badge = document.createElement('span');
+        badge.className = 'leaving-soon-badge';
+        badge.textContent = 'Leaving soon';
+        badge.title = 'Screenings for this film have stopped being added further out — it may be ending its run soon';
+        section.appendChild(badge);
+      } else if (film.oneOffScreening) {
+        const badge = document.createElement('span');
+        badge.className = 'one-off-badge';
+        badge.textContent = 'One-off screening';
+        badge.title = 'This film has only ever had a single scheduled date — likely a special/anniversary screening, not an ongoing run';
+        section.appendChild(badge);
+      }
 
       const meta = document.createElement('div');
       meta.className = 'film-meta';

@@ -136,6 +136,53 @@ async function loadPreviousFirstSeen() {
   }
 }
 
+// "Might be leaving soon": Curzon never publishes an end date for a film, and
+// "no showtimes further out" on its own is meaningless — that's just as true
+// for a film with years left to run as one on its last day, since Curzon only
+// reliably publishes ~3-4 days ahead for everyone. The only real signal is a
+// *trend*: track the furthest date we've ever seen each film scheduled on
+// (maxScheduledDate, persisted and monotonically non-decreasing, like a
+// high-water mark) and when we first saw it at that value
+// (maxScheduledDateFirstSeenAt). A continuing film's high-water mark keeps
+// creeping forward as new days open up; a film that's actually ending stops
+// getting rebooked, so its mark stays fixed while "today" keeps advancing
+// toward it. Flagged only once that gap has shrunk to LEAVING_SOON_DAYS_LEFT
+// AND the mark has been stuck for at least LEAVING_SOON_MIN_STUCK_DAYS —
+// the grace period exists so this doesn't fire off a single day's data blip.
+//
+// One-off screenings (a single anniversary/special showing, e.g. "Trainspotting
+// (30th Anniversary)") would otherwise get misread as "leaving soon" the moment
+// they appear, since their one and only date is always imminent. They need no
+// trend at all to detect — a film that has *never*, in any scrape, been
+// scheduled on more than one date is structurally a one-off, not a shrinking
+// run, so it's tracked with the same high-water-mark pattern (maxScheduledDatesCount)
+// and reported as its own tag instead of feeding into the leaving-soon trend.
+const LEAVING_SOON_DAYS_LEFT = 3;
+const LEAVING_SOON_MIN_STUCK_DAYS = 2;
+
+function daysBetween(aIso, bIso) {
+  return Math.round((new Date(`${bIso}T00:00:00Z`) - new Date(`${aIso}T00:00:00Z`)) / 86400000);
+}
+
+async function loadPreviousLeavingSoonTracking() {
+  try {
+    const previous = JSON.parse(await readFile(OUT_PATH, 'utf8'));
+    const entries = {};
+    for (const [filmId, film] of Object.entries(previous.films || {})) {
+      if (film.maxScheduledDate) {
+        entries[filmId] = {
+          maxScheduledDate: film.maxScheduledDate,
+          maxScheduledDateFirstSeenAt: film.maxScheduledDateFirstSeenAt,
+          maxScheduledDatesCount: film.maxScheduledDatesCount || 1,
+        };
+      }
+    }
+    return entries;
+  } catch {
+    return {};
+  }
+}
+
 // Curzon prefixes repertory/season screenings with a strand name ("Curzon Film 50:
 // Parasite", "EXHIBITION ON SCREEN: Monet"). The real film title is what follows.
 const STRAND_PREFIXES = [
@@ -185,6 +232,7 @@ async function main() {
 
   console.log('Fetching film metadata for each site...');
   const previousFirstSeen = await loadPreviousFirstSeen();
+  const previousLeavingSoonTracking = await loadPreviousLeavingSoonTracking();
   const scrapedTodayStr = londonDateString(new Date());
   const films = {};
   const releaseYearsByFilmId = {};
@@ -263,6 +311,48 @@ async function main() {
     }
     showtimesByDate[date] = bySite;
     console.log(`  ${date}: ${resp.showtimes.length} showtimes`);
+  }
+
+  console.log('Updating leaving-soon tracking...');
+  const observedMaxByFilmId = {};
+  const observedDatesByFilmId = {};
+  const filmsShowingTodaySet = new Set();
+  for (const [isoDate, bySite] of Object.entries(showtimesByDate)) {
+    for (const list of Object.values(bySite)) {
+      for (const st of list) {
+        if (!observedMaxByFilmId[st.filmId] || isoDate > observedMaxByFilmId[st.filmId]) {
+          observedMaxByFilmId[st.filmId] = isoDate;
+        }
+        if (!observedDatesByFilmId[st.filmId]) observedDatesByFilmId[st.filmId] = new Set();
+        observedDatesByFilmId[st.filmId].add(isoDate);
+        if (isoDate === scrapedTodayStr) filmsShowingTodaySet.add(st.filmId);
+      }
+    }
+  }
+  for (const [filmId, film] of Object.entries(films)) {
+    const observedMax = observedMaxByFilmId[filmId];
+    if (!observedMax) continue;
+    const previous = previousLeavingSoonTracking[filmId];
+    if (previous && previous.maxScheduledDate >= observedMax) {
+      film.maxScheduledDate = previous.maxScheduledDate;
+      film.maxScheduledDateFirstSeenAt = previous.maxScheduledDateFirstSeenAt;
+    } else {
+      film.maxScheduledDate = observedMax;
+      film.maxScheduledDateFirstSeenAt = scrapedTodayStr;
+    }
+
+    const observedDatesCount = observedDatesByFilmId[filmId].size;
+    film.maxScheduledDatesCount = Math.max(observedDatesCount, previous ? previous.maxScheduledDatesCount : 1);
+    film.oneOffScreening = film.maxScheduledDatesCount <= 1;
+
+    const daysLeft = daysBetween(scrapedTodayStr, film.maxScheduledDate);
+    const daysStuck = daysBetween(film.maxScheduledDateFirstSeenAt, scrapedTodayStr);
+    film.leavingSoon =
+      !film.oneOffScreening &&
+      filmsShowingTodaySet.has(filmId) &&
+      daysLeft >= 0 &&
+      daysLeft <= LEAVING_SOON_DAYS_LEFT &&
+      daysStuck >= LEAVING_SOON_MIN_STUCK_DAYS;
   }
 
   const output = {
