@@ -118,6 +118,24 @@ async function loadPreviousRottenTomatoes() {
   }
 }
 
+// The date we first ever saw a given film in our own scrape history — a
+// definitive "new to the cinema" signal for the site's "coming up this week"
+// feature, as opposed to guessing from how many days it happens to be
+// scheduled on. Persisted indefinitely once set, same pattern as the RT
+// cache above. A film we've genuinely never seen before gets today's date.
+async function loadPreviousFirstSeen() {
+  try {
+    const previous = JSON.parse(await readFile(OUT_PATH, 'utf8'));
+    const entries = {};
+    for (const [filmId, film] of Object.entries(previous.films || {})) {
+      if (film.firstSeen) entries[filmId] = film.firstSeen;
+    }
+    return entries;
+  } catch {
+    return {};
+  }
+}
+
 // Curzon prefixes repertory/season screenings with a strand name ("Curzon Film 50:
 // Parasite", "EXHIBITION ON SCREEN: Monet"). The real film title is what follows.
 const STRAND_PREFIXES = [
@@ -166,6 +184,8 @@ async function main() {
   }
 
   console.log('Fetching film metadata for each site...');
+  const previousFirstSeen = await loadPreviousFirstSeen();
+  const scrapedTodayStr = londonDateString(new Date());
   const films = {};
   const releaseYearsByFilmId = {};
   const censorRatingIdByFilmId = {};
@@ -181,6 +201,7 @@ async function main() {
         title: f.title.text,
         description: (f.shortSynopsis && f.shortSynopsis.text) || (f.synopsis && f.synopsis.text) || '',
         runtimeMinutes: f.runtimeInMinutes ?? null,
+        firstSeen: previousFirstSeen[f.id] || scrapedTodayStr,
       };
       if (f.releaseDate) releaseYearsByFilmId[f.id] = f.releaseDate.slice(0, 4);
       if (f.censorRatingId) censorRatingIdByFilmId[f.id] = f.censorRatingId;

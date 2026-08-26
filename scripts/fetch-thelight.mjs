@@ -97,12 +97,41 @@ async function loadPreviousRottenTomatoes() {
   }
 }
 
+function londonDateString(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+// The date we first ever saw a given film in our own scrape history — a
+// definitive "new to the cinema" signal for the site's "coming up this week"
+// feature, as opposed to guessing from how many days it happens to be
+// scheduled on. Persisted indefinitely once set, same pattern as the RT
+// cache above. A film we've genuinely never seen before gets today's date.
+async function loadPreviousFirstSeen() {
+  try {
+    const previous = JSON.parse(await readFile(OUT_PATH, 'utf8'));
+    const entries = {};
+    for (const [filmId, film] of Object.entries(previous.films || {})) {
+      if (film.firstSeen) entries[filmId] = film.firstSeen;
+    }
+    return entries;
+  } catch {
+    return {};
+  }
+}
+
 async function main() {
   console.log('Fetching miniguide data...');
   const data = parseMiniguide(await fetchText(MINIGUIDE_URL));
   console.log(`Got ${data.Schedule.length} films/events.`);
 
   const previousRottenTomatoes = await loadPreviousRottenTomatoes();
+  const previousFirstSeen = await loadPreviousFirstSeen();
+  const scrapedTodayStr = londonDateString(new Date());
 
   const films = {};
   const showtimesByDate = {};
@@ -132,6 +161,7 @@ async function main() {
         rottenTomatoes,
         releaseYear,
         ageRating: item.Cert || null,
+        firstSeen: previousFirstSeen[filmId] || scrapedTodayStr,
       };
     }
 

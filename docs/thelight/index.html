@@ -593,16 +593,33 @@ async function main() {
     return new Set((data.showtimesByDate[date] || []).map((st) => st.filmId));
   }
 
-  // Films showing at some point in the next 7 days but not today — easy to
-  // miss one-off/repertory screenings if you only ever check today's date.
+  // "New to the cinema" — a film only counts as recently added if our own
+  // scrape history first saw it within the last week. This is a definitive
+  // signal (persisted in data.films[].firstSeen across scraper runs), not a
+  // guess: it doesn't depend on the film's real-world release date, so
+  // repertory/classic re-releases count as "new" the moment they're newly
+  // programmed, same as an actual new film.
+  const NEW_WITHIN_DAYS = 7;
+
+  function isRecentlyAdded(film) {
+    if (!film || !film.firstSeen) return false;
+    const diffMs = new Date(`${todayStr}T00:00:00Z`) - new Date(`${film.firstSeen}T00:00:00Z`);
+    return diffMs >= 0 && diffMs <= NEW_WITHIN_DAYS * 86400000;
+  }
+
+  // Films newly added to the schedule with a showing at some point in the
+  // next 7 days but not today — easy to miss one-off/repertory screenings if
+  // you only ever check today's date.
   function computeComingThisWeek() {
     const weekDays = data.days.slice(0, 7);
-    if (weekDays.length === 0) return [];
+    if (weekDays.length <= 1) return [];
     const todayFilmIds = filmIdsShowingOnDate(weekDays[0]);
+
     const comingMap = new Map();
     for (const day of weekDays.slice(1)) {
       for (const filmId of filmIdsShowingOnDate(day)) {
         if (hiddenFilmIds.has(filmId) || todayFilmIds.has(filmId) || comingMap.has(filmId)) continue;
+        if (!isRecentlyAdded(data.films[filmId])) continue;
         comingMap.set(filmId, day);
       }
     }
