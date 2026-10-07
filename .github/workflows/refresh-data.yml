@@ -22,12 +22,16 @@ jobs:
       - run: npm install
       - run: npx playwright install --with-deps chromium
 
-      # Each site is scraped independently — one breaking (e.g. a site
-      # redesign) shouldn't block the other's data from refreshing and
-      # being committed. A failure here is still visible as a workflow
-      # warning, just not fatal to the job.
-      - run: npm run refresh || echo "::warning::Curzon refresh failed"
-      - run: npm run refresh:thelight || echo "::warning::The Light refresh failed"
+      # Each site is scraped independently so one breaking (e.g. a site
+      # redesign or a bot block) doesn't stop the other's data being committed.
+      # continue-on-error lets the commit step run; the final step then fails
+      # the job so a broken scraper shows as a red run, not a quiet warning.
+      - id: curzon
+        run: CURZON_HEADED=1 xvfb-run --auto-servernum npm run refresh
+        continue-on-error: true
+      - id: thelight
+        run: npm run refresh:thelight
+        continue-on-error: true
 
       - name: Commit updated data.json files
         run: |
@@ -36,3 +40,9 @@ jobs:
           git add docs/data.json docs/thelight/data.json
           git diff --staged --quiet || git commit -m "Refresh showtimes data"
           git push
+
+      - name: Fail if any scraper failed
+        if: steps.curzon.outcome == 'failure' || steps.thelight.outcome == 'failure'
+        run: |
+          echo "curzon: ${{ steps.curzon.outcome }}, thelight: ${{ steps.thelight.outcome }}"
+          exit 1
