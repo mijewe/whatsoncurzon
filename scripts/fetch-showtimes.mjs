@@ -57,12 +57,43 @@ function upcomingLondonDates(count) {
 }
 
 async function fetchAuthToken() {
-  const browser = await chromium.launch({ headless: true });
+  // Cloudflare serves a managed challenge to Playwright's default (old-style)
+  // headless shell, and also blocks datacenter IPs outright (GitHub Actions
+  // runners get a hard 403 even with a headed browser) — so this only works from
+  // a residential connection, see scripts/local-refresh.sh. channel: 'chromium'
+  // opts into new-style headless (the real browser, no window), and we hide the
+  // usual automation tells. CURZON_HEADED=1 is an escape hatch to see what's
+  // happening if it breaks.
+  const headless = process.env.CURZON_HEADED !== '1';
+  const browser = await chromium.launch({
+    channel: 'chromium',
+    headless,
+    args: ['--disable-blink-features=AutomationControlled'],
+  });
   try {
-    const page = await browser.newPage({ userAgent: DESKTOP_USER_AGENT });
-    const resp = await page.goto(TOKEN_SOURCE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const context = await browser.newContext({
+      userAgent: DESKTOP_USER_AGENT,
+      locale: 'en-GB',
+      timezoneId: 'Europe/London',
+      viewport: { width: 1366, height: 768 },
+    });
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
+    const page = await context.newPage();
+    let resp = await page.goto(TOKEN_SOURCE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // A Cloudflare interstitial can clear itself after a few seconds; give it one retry window.
+    if (resp && resp.status() === 403) {
+      console.log('Got 403, waiting for a possible Cloudflare challenge to clear...');
+      await page.waitForTimeout(8000);
+      resp = await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+    }
     if (!resp || !resp.ok()) {
-      throw new Error(`Failed to load ${TOKEN_SOURCE_URL}: HTTP ${resp && resp.status()}`);
+      const server = resp && resp.headers()['server'];
+      const mitigated = resp && resp.headers()['cf-mitigated'];
+      throw new Error(
+        `Failed to load ${TOKEN_SOURCE_URL}: HTTP ${resp && resp.status()} (server=${server}, cf-mitigated=${mitigated})`,
+      );
     }
     const html = await page.content();
     const apiUrlMatch = html.match(/"apiUrl":"([^"]+)"/);

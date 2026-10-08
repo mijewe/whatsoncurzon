@@ -52,11 +52,27 @@ extended to the others the same way Curzon's `LONDON_SITE_IDS` covers multiple s
   than risk showing a wrong film's score. Found scores are cached in the site's
   `data.json` and not re-checked; a film found on RT but without a score yet is
   re-checked every run until it gets one.
-- [`.github/workflows/refresh-data.yml`](.github/workflows/refresh-data.yml) runs both
-  scripts every 6 hours on GitHub Actions and commits whichever `data.json` file(s)
-  changed — so the published pages always read fresh static data with no server of
-  their own. The two scrapers run independently: one site changing its layout and
-  breaking its scraper doesn't block the other's data from refreshing.
+- [`.github/workflows/refresh-data.yml`](.github/workflows/refresh-data.yml) runs the
+  Light scraper every 6 hours on GitHub Actions and commits `docs/thelight/data.json`,
+  so the published pages read static data with no server of their own.
+- **Curzon can't run on GitHub Actions.** curzon.com sits behind Cloudflare, which
+  blocks GitHub's datacenter IPs outright (a hard 403, whatever the browser
+  fingerprint) and serves a managed challenge to plain HTTP and old-style headless
+  Chromium even from a home connection. New-style headless Chromium
+  (`channel: 'chromium'`) from a residential IP does get through. So Curzon is refreshed
+  from a Mac by [`scripts/local-refresh.sh`](scripts/local-refresh.sh), which works in
+  its own clone of `master` (`~/.curzon-refresh/repo`), scrapes, and pushes
+  `docs/data.json`. [`scripts/install-launchd.sh`](scripts/install-launchd.sh) schedules
+  it daily at 11:30; launchd runs a job missed during sleep once on wake, but
+  skips ones missed while the Mac is off. Failures log to
+  `~/.curzon-refresh/refresh.log` and raise a macOS notification. If the Mac is off for
+  a while the Curzon data goes stale, but the page's "last refreshed" time says so.
+
+  ```bash
+  scripts/install-launchd.sh             # install / update the schedule
+  launchctl kickstart gui/$(id -u)/com.mijewe.curzon-refresh   # run it now
+  scripts/install-launchd.sh uninstall
+  ```
 
 ## Hosting on GitHub Pages
 
