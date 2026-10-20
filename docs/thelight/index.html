@@ -559,7 +559,22 @@ async function main() {
 
   taglineText.textContent = `See what's on at The Light ${data.venue.name}`;
 
-  const todayStr = data.days[0];
+  // "Today" is the visitor's actual date in London, not the first day in the
+  // data (which is just whenever the scraper last ran). Days already gone are
+  // dropped so the strip always starts at today.
+  const todayStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  data.days = data.days.filter((day) => day >= todayStr);
+  if (data.days.length === 0) {
+    statusEl.textContent = `Showtimes data is out of date (last refreshed ${new Date(data.generatedAt).toLocaleString('en-GB')}). Try again later.`;
+    statusEl.classList.add('error');
+    return;
+  }
+
   let selectedDateIndex = 0;
 
   const hiddenFilmIds = new Set(loadHiddenFilms());
