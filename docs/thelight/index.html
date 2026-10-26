@@ -417,9 +417,10 @@
       <label for="time-filter-mode">Show times</label>
       <div class="time-filter">
         <select id="time-filter-mode">
-          <option value="any">Any time</option>
+          <option value="upcoming">From now</option>
           <option value="after">After</option>
           <option value="before">Before</option>
+          <option value="all">All day</option>
         </select>
         <input type="time" id="time-filter-value">
       </div>
@@ -459,7 +460,10 @@ const TIME_FILTER_STORAGE_KEY = 'thelight-time-filter';
 function loadTimeFilter() {
   try {
     const raw = localStorage.getItem(TIME_FILTER_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const filter = raw ? JSON.parse(raw) : null;
+    // 'any' was the old default (everything, including showtimes already gone).
+    if (filter && filter.mode === 'any') filter.mode = 'upcoming';
+    return filter;
   } catch {
     return null;
   }
@@ -489,8 +493,11 @@ function timeOfDayMinutes(iso) {
   return d.getHours() * 60 + d.getMinutes();
 }
 
+// Showtimes that have already started are hidden unless the mode is 'all'.
 function matchesTimeFilter(iso, filter) {
-  if (filter.mode === 'any' || !filter.time) return true;
+  if (filter.mode === 'all') return true;
+  if (Date.parse(iso) < Date.now()) return false;
+  if (filter.mode === 'upcoming' || !filter.time) return true;
   const [h, m] = filter.time.split(':').map(Number);
   const cutoff = h * 60 + m;
   const minutes = timeOfDayMinutes(iso);
@@ -579,14 +586,14 @@ async function main() {
 
   const hiddenFilmIds = new Set(loadHiddenFilms());
 
-  const timeFilter = loadTimeFilter() || { mode: 'any', time: '18:00' };
+  const timeFilter = loadTimeFilter() || { mode: 'upcoming', time: '18:00' };
   timeFilterMode.value = timeFilter.mode;
   timeFilterValue.value = timeFilter.time;
-  timeFilterValue.disabled = timeFilter.mode === 'any';
+  timeFilterValue.disabled = !['after', 'before'].includes(timeFilter.mode);
 
   timeFilterMode.addEventListener('change', () => {
     timeFilter.mode = timeFilterMode.value;
-    timeFilterValue.disabled = timeFilter.mode === 'any';
+    timeFilterValue.disabled = !['after', 'before'].includes(timeFilter.mode);
     saveTimeFilter(timeFilter);
     render();
   });
@@ -731,8 +738,9 @@ async function main() {
     }
 
     if (byFilm.size === 0) {
-      const filterNote = timeFilter.mode !== 'any' && timeFilter.time ? ` ${timeFilter.mode} ${timeFilter.time}` : '';
-      statusEl.textContent = `Nothing found${filterNote} on this date.`;
+      const filterNote = ['after', 'before'].includes(timeFilter.mode) && timeFilter.time ? ` ${timeFilter.mode} ${timeFilter.time}` : '';
+      const pastNote = date === todayStr && timeFilter.mode !== 'all' ? ' Earlier showtimes are hidden — choose "All day" to see them.' : '';
+      statusEl.textContent = `Nothing found${filterNote} on this date.${pastNote}`;
       return;
     }
     statusEl.textContent = '';
