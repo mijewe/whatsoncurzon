@@ -621,6 +621,18 @@ function citymapperUrl(site) {
   return `https://citymapper.com/directions?${params}`;
 }
 
+// Citymapper's https link is a verified app link, so Android opens it straight
+// in the Citymapper app with no choice. A geo: URI is the standard "show this
+// place" intent instead: Android lists every installed app that handles it
+// (Citymapper, Beeline, Google Maps...) so you pick each time.
+const IS_ANDROID = /android/i.test(navigator.userAgent);
+
+function directionsUrl(site) {
+  if (!IS_ANDROID) return citymapperUrl(site);
+  const coords = `${site.latitude},${site.longitude}`;
+  return `geo:${coords}?q=${coords}(${encodeURIComponent(`Curzon ${site.name}`)})`;
+}
+
 const PIN_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>`;
 
 const EXTERNAL_LINK_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>`;
@@ -1028,11 +1040,14 @@ async function main() {
         h3.appendChild(document.createTextNode(site.name));
         const mapLink = document.createElement('a');
         mapLink.className = 'citymapper-link';
-        mapLink.href = citymapperUrl(site);
-        mapLink.target = '_blank';
-        mapLink.rel = 'noopener';
-        mapLink.title = 'Directions via Citymapper';
-        mapLink.setAttribute('aria-label', `Directions to ${site.name} via Citymapper`);
+        mapLink.href = directionsUrl(site);
+        if (!IS_ANDROID) {
+          mapLink.target = '_blank';
+          mapLink.rel = 'noopener';
+        }
+        const via = IS_ANDROID ? 'in a maps app' : 'via Citymapper';
+        mapLink.title = `Directions ${via}`;
+        mapLink.setAttribute('aria-label', `Directions to ${site.name} ${via}`);
         mapLink.innerHTML = PIN_ICON_SVG;
         h3.appendChild(mapLink);
         group.appendChild(h3);
