@@ -105,7 +105,7 @@ function delay(ms) {
 // `title`/`yearHint` are whatever the caller has already cleaned up (e.g.
 // with a chain-specific strand-prefix strip) — this module has no opinion on
 // that. Returns { rottenTomatoes, releaseYear }.
-export async function lookupRottenTomatoes(title, yearHint, cached) {
+async function lookupRottenTomatoesOnce(title, yearHint, cached) {
   if (cached && cached.criticsScore != null) {
     return { rottenTomatoes: cached, releaseYear: cached.releaseYear ?? yearHint ?? null };
   }
@@ -127,4 +127,22 @@ export async function lookupRottenTomatoes(title, yearHint, cached) {
   const rottenTomatoes = { url, releaseYear, ...scores };
   await delay(250);
   return { rottenTomatoes, releaseYear: releaseYear ?? yearHint ?? null };
+}
+
+// Scores are decoration, and a run makes hundreds of sequential requests to RT,
+// so one dropped connection (ECONNRESET etc.) must not abort the whole showtimes
+// refresh. Retry once, then fall back to whatever was cached (or no score).
+export async function lookupRottenTomatoes(title, yearHint, cached) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await lookupRottenTomatoesOnce(title, yearHint, cached);
+    } catch (err) {
+      const reason = (err.cause && err.cause.code) || err.message;
+      if (attempt === 2) {
+        console.warn(`  RT lookup failed for "${title}" (${reason}), skipping.`);
+        return { rottenTomatoes: cached || null, releaseYear: (cached && cached.releaseYear) ?? yearHint ?? null };
+      }
+      await delay(2000);
+    }
+  }
 }
