@@ -34,8 +34,16 @@ jobs:
       # redesign or a bot block) doesn't stop the other's data being committed.
       # continue-on-error lets the commit step run; the final step then fails
       # the job so a broken scraper shows as a red run, not a quiet warning.
+      # Curzon's Cloudflare check is intermittent: the scraper retries the token
+      # fetch itself, and if a whole run still gets challenged, wait and try the
+      # whole thing once more.
       - id: curzon
-        run: npm run refresh
+        run: |
+          npm run refresh || {
+            echo "::warning::Curzon refresh failed, retrying once in 90s"
+            sleep 90
+            npm run refresh
+          }
         continue-on-error: true
       - id: thelight
         run: npm run refresh:thelight

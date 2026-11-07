@@ -44,7 +44,7 @@ const DAYS_AHEAD = 10; // Curzon only publishes ~a week of full schedule at a ti
 const TOKEN_SOURCE_URL = 'https://www.curzon.com/';
 // Path to the curl-impersonate binary (v2.2.x), or just "curl-impersonate" on PATH.
 const CURL_IMPERSONATE = process.env.CURL_IMPERSONATE_BIN || 'curl-impersonate';
-const TOKEN_ATTEMPTS = 3;
+const TOKEN_ATTEMPTS = 6;
 
 function londonDateString(date) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -100,7 +100,9 @@ async function fetchAuthTokenOnce() {
   return { apiUrl: apiUrlMatch[1], token: tokenMatch[1] };
 }
 
-// Cloudflare is occasionally flaky; retry a couple of times before giving up.
+// Cloudflare intermittently challenges even a Chrome-fingerprinted request from a
+// runner (roughly a third of requests in testing), so retry patiently with a
+// growing, jittered wait before giving up.
 async function fetchAuthToken() {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -108,7 +110,8 @@ async function fetchAuthToken() {
     } catch (err) {
       if (attempt >= TOKEN_ATTEMPTS || /Could not run/.test(err.message)) throw err;
       console.log(`Token fetch attempt ${attempt} failed (${err.message}), retrying...`);
-      await new Promise((resolve) => setTimeout(resolve, 5000 * attempt));
+      const waitMs = 5000 * attempt + Math.random() * 5000;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
 }
