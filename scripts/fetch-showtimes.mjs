@@ -4,16 +4,22 @@
 // Why a scrape step at all: Curzon's booking API (digital-api.curzon.com) requires
 // a short-lived bearer token that's only ever handed out embedded in the server-
 // rendered HTML of a normal curzon.com page, and that page sits behind a Cloudflare
-// challenge that blocks plain HTTP requests (curl, node fetch) — only a real/headless
-// browser gets through. So we drive a real headless Chromium once to mint a token,
-// then make plain HTTPS calls with node's built-in fetch for everything else.
-// The API itself also doesn't send CORS headers for cross-origin browser requests,
-// so none of this can happen client-side from the published GitHub Pages site either.
-import { chromium } from 'playwright';
+// challenge that fingerprints the client's TLS/HTTP2 handshake — plain fetch/curl
+// get a 403 challenge, and so does headless Chromium. We fetch that one page with
+// curl-impersonate (https://github.com/lexiforest/curl-impersonate), which
+// reproduces Chrome's handshake exactly, to read the token out of the HTML. No
+// browser is needed, and it works from GitHub Actions runners. Everything else is
+// plain node fetch against the API, which doesn't mind where it's called from.
+// The API doesn't send CORS headers either, so none of this can happen client-side
+// from the published GitHub Pages site.
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DESKTOP_USER_AGENT, lookupRottenTomatoes } from './lib/rotten-tomatoes.mjs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+import { lookupRottenTomatoes } from './lib/rotten-tomatoes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, '..', 'docs', 'data.json');
@@ -35,7 +41,10 @@ const LONDON_SITE_IDS = [
 ];
 
 const DAYS_AHEAD = 10; // Curzon only publishes ~a week of full schedule at a time.
-const TOKEN_SOURCE_URL = 'https://www.curzon.com/venues/soho/';
+const TOKEN_SOURCE_URL = 'https://www.curzon.com/';
+// Path to the curl-impersonate binary (v2.2.x), or just "curl-impersonate" on PATH.
+const CURL_IMPERSONATE = process.env.CURL_IMPERSONATE_BIN || 'curl-impersonate';
+const TOKEN_ATTEMPTS = 3;
 
 function londonDateString(date) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -56,54 +65,51 @@ function upcomingLondonDates(count) {
   });
 }
 
-async function fetchAuthToken() {
-  // Cloudflare serves a managed challenge to Playwright's default (old-style)
-  // headless shell, and also blocks datacenter IPs outright (GitHub Actions
-  // runners get a hard 403 even with a headed browser) — so this only works from
-  // a residential connection, see scripts/local-refresh.sh. channel: 'chromium'
-  // opts into new-style headless (the real browser, no window), and we hide the
-  // usual automation tells. CURZON_HEADED=1 is an escape hatch to see what's
-  // happening if it breaks.
-  const headless = process.env.CURZON_HEADED !== '1';
-  const browser = await chromium.launch({
-    channel: 'chromium',
-    headless,
-    args: ['--disable-blink-features=AutomationControlled'],
-  });
+async function fetchAuthTokenOnce() {
+  let stdout;
   try {
-    const context = await browser.newContext({
-      userAgent: DESKTOP_USER_AGENT,
-      locale: 'en-GB',
-      timezoneId: 'Europe/London',
-      viewport: { width: 1366, height: 768 },
-    });
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    });
-    const page = await context.newPage();
-    let resp = await page.goto(TOKEN_SOURCE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    // A Cloudflare interstitial can clear itself after a few seconds; give it one retry window.
-    if (resp && resp.status() === 403) {
-      console.log('Got 403, waiting for a possible Cloudflare challenge to clear...');
-      await page.waitForTimeout(8000);
-      resp = await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-    }
-    if (!resp || !resp.ok()) {
-      const server = resp && resp.headers()['server'];
-      const mitigated = resp && resp.headers()['cf-mitigated'];
+    ({ stdout } = await execFileAsync(
+      CURL_IMPERSONATE,
+      [
+        '--disable', '--impersonate', 'chrome150', '--compressed', '--silent', '--show-error',
+        '--connect-timeout', '10', '--max-time', '30',
+        '--write-out', '\n%{http_code}',
+        TOKEN_SOURCE_URL,
+      ],
+      { maxBuffer: 20 * 1024 * 1024 },
+    ));
+  } catch (err) {
+    if (err.code === 'ENOENT') {
       throw new Error(
-        `Failed to load ${TOKEN_SOURCE_URL}: HTTP ${resp && resp.status()} (server=${server}, cf-mitigated=${mitigated})`,
+        `Could not run "${CURL_IMPERSONATE}". Install curl-impersonate (https://github.com/lexiforest/curl-impersonate/releases) and put it on PATH, or set CURL_IMPERSONATE_BIN to its path.`,
       );
     }
-    const html = await page.content();
-    const apiUrlMatch = html.match(/"apiUrl":"([^"]+)"/);
-    const tokenMatch = html.match(/"authToken":"([^"]+)"/);
-    if (!apiUrlMatch || !tokenMatch) {
-      throw new Error('Could not find apiUrl/authToken in page HTML — Curzon may have changed their site.');
+    throw new Error(`curl-impersonate failed (exit ${err.code}): ${(err.stderr || '').trim() || 'no output'}`);
+  }
+  const split = stdout.lastIndexOf('\n');
+  const html = stdout.slice(0, split);
+  const status = stdout.slice(split + 1).trim();
+  if (status !== '200') {
+    throw new Error(`Failed to load ${TOKEN_SOURCE_URL}: HTTP ${status} (Cloudflare challenge?)`);
+  }
+  const apiUrlMatch = html.match(/"apiUrl":"([^"]+)"/);
+  const tokenMatch = html.match(/"authToken":"([^"]+)"/);
+  if (!apiUrlMatch || !tokenMatch) {
+    throw new Error('Could not find apiUrl/authToken in page HTML — Curzon may have changed their site.');
+  }
+  return { apiUrl: apiUrlMatch[1], token: tokenMatch[1] };
+}
+
+// Cloudflare is occasionally flaky; retry a couple of times before giving up.
+async function fetchAuthToken() {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetchAuthTokenOnce();
+    } catch (err) {
+      if (attempt >= TOKEN_ATTEMPTS || /Could not run/.test(err.message)) throw err;
+      console.log(`Token fetch attempt ${attempt} failed (${err.message}), retrying...`);
+      await new Promise((resolve) => setTimeout(resolve, 5000 * attempt));
     }
-    return { apiUrl: apiUrlMatch[1], token: tokenMatch[1] };
-  } finally {
-    await browser.close();
   }
 }
 
@@ -237,7 +243,7 @@ function parseFilmQueryTitle(title) {
 }
 
 async function main() {
-  console.log('Fetching auth token via headless browser...');
+  console.log('Fetching auth token via curl-impersonate...');
   const { apiUrl, token } = await fetchAuthToken();
   console.log('Got token, length', token.length);
 

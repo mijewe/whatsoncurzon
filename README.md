@@ -15,12 +15,14 @@ Live pages: `docs/index.html` (Curzon, reads `docs/data.json`) and
 Curzon's own showtimes API (`digital-api.curzon.com`) doesn't send CORS headers, so
 a page hosted on GitHub Pages can't call it directly from the browser. Instead:
 
-- [`scripts/fetch-showtimes.mjs`](scripts/fetch-showtimes.mjs) runs headless Chromium
-  once to load a curzon.com page and pull out the short-lived API token embedded in
-  it (curzon.com sits behind a Cloudflare check that blocks plain HTTP requests, so
-  this step needs a real browser). It then calls the API directly for the cinema
-  list, film details, and showtimes for the next 10 days across the 10 London
-  Curzon cinemas, and writes it all to `docs/data.json`.
+- [`scripts/fetch-showtimes.mjs`](scripts/fetch-showtimes.mjs) loads the curzon.com
+  homepage with [curl-impersonate](https://github.com/lexiforest/curl-impersonate) and
+  reads the short-lived API token embedded in it. curzon.com sits behind a Cloudflare
+  check that fingerprints the TLS handshake, so plain HTTP requests and headless
+  Chromium get a 403 challenge; curl-impersonate reproduces Chrome's handshake, so it
+  gets through (including from GitHub Actions) with no browser. The script then calls the
+  API directly for the cinema list, film details, and showtimes for the next 10 days
+  across the 10 London Curzon cinemas, and writes it all to `docs/data.json`.
 - `docs/index.html` is a plain static page: date picker, a cinema picker whose
   selection is saved to `localStorage`, and a render of `docs/data.json` grouped by
   cinema → film → times.
@@ -52,27 +54,11 @@ extended to the others the same way Curzon's `LONDON_SITE_IDS` covers multiple s
   than risk showing a wrong film's score. Found scores are cached in the site's
   `data.json` and not re-checked; a film found on RT but without a score yet is
   re-checked every run until it gets one.
-- [`.github/workflows/refresh-data.yml`](.github/workflows/refresh-data.yml) runs the
-  Light scraper every 6 hours on GitHub Actions and commits `docs/thelight/data.json`,
-  so the published pages read static data with no server of their own.
-- **Curzon can't run on GitHub Actions.** curzon.com sits behind Cloudflare, which
-  blocks GitHub's datacenter IPs outright (a hard 403, whatever the browser
-  fingerprint) and serves a managed challenge to plain HTTP and old-style headless
-  Chromium even from a home connection. New-style headless Chromium
-  (`channel: 'chromium'`) from a residential IP does get through. So Curzon is refreshed
-  from a Mac by [`scripts/local-refresh.sh`](scripts/local-refresh.sh), which works in
-  its own clone of `master` (`~/.curzon-refresh/repo`), scrapes, and pushes
-  `docs/data.json`. [`scripts/install-launchd.sh`](scripts/install-launchd.sh) schedules
-  it daily at 11:30; launchd runs a job missed during sleep once on wake, but
-  skips ones missed while the Mac is off. Failures log to
-  `~/.curzon-refresh/refresh.log` and raise a macOS notification. If the Mac is off for
-  a while the Curzon data goes stale, but the page's "last refreshed" time says so.
-
-  ```bash
-  scripts/install-launchd.sh             # install / update the schedule
-  launchctl kickstart gui/$(id -u)/com.mijewe.curzon-refresh   # run it now
-  scripts/install-launchd.sh uninstall
-  ```
+- [`.github/workflows/refresh-data.yml`](.github/workflows/refresh-data.yml) runs both
+  scripts every 6 hours on GitHub Actions and commits whichever `data.json` file(s)
+  changed — so the published pages always read fresh static data with no server of
+  their own. The two scrapers run independently: one site breaking doesn't block the
+  other's data from refreshing, and a failed scraper turns the run red.
 
 ## Hosting on GitHub Pages
 
@@ -87,9 +73,11 @@ The scheduled workflow needs no setup beyond that — it uses the default
 
 ## Running the refresh locally
 
+There are no npm dependencies (Node 20+). Curzon also needs the `curl-impersonate`
+binary (v2.2.x, from the [releases page](https://github.com/lexiforest/curl-impersonate/releases))
+on your `PATH`, or its location in `CURL_IMPERSONATE_BIN`.
+
 ```bash
-npm install
-npx playwright install chromium
 npm run refresh            # Curzon — overwrites docs/data.json
 npm run refresh:thelight   # The Light Sheffield — overwrites docs/thelight/data.json
 npm run refresh:all        # both

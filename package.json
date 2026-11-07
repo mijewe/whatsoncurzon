@@ -9,8 +9,5 @@
     "refresh:thelight": "node scripts/fetch-thelight.mjs",
     "refresh:all": "npm run refresh && npm run refresh:thelight"
   },
-  "license": "ISC",
-  "devDependencies": {
-    "playwright": "^1.62.1"
-  }
+  "license": "ISC"
 }

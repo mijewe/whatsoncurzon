@@ -1,12 +1,8 @@
 name: Refresh showtimes data
 
-# The Light only. Curzon can't be scraped from GitHub's runners (Cloudflare
-# blocks datacenter IPs outright), so docs/data.json is refreshed from a
-# residential connection by scripts/local-refresh.sh — see the README.
-
 on:
   schedule:
-    # Every 6 hours.
+    # Every 6 hours. Curzon publishes new days of schedule a few times a day.
     - cron: '0 */6 * * *'
   workflow_dispatch: {}
 
@@ -23,18 +19,39 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm install
+      # Curzon's token page sits behind a Cloudflare challenge that fingerprints
+      # the TLS handshake; curl-impersonate reproduces Chrome's, so no browser is
+      # needed. The Light needs nothing special.
+      - name: Install curl-impersonate
+        run: |
+          curl -sSL -o ci.tar.gz https://github.com/lexiforest/curl-impersonate/releases/download/v2.2.3/curl-impersonate-v2.2.3.x86_64-linux-gnu.tar.gz
+          mkdir -p "$RUNNER_TEMP/curl-impersonate"
+          tar xzf ci.tar.gz -C "$RUNNER_TEMP/curl-impersonate"
+          rm ci.tar.gz
+          echo "CURL_IMPERSONATE_BIN=$RUNNER_TEMP/curl-impersonate/curl-impersonate" >> "$GITHUB_ENV"
 
-      # No headless browser needed for The Light. A failure fails the run, so a
-      # broken scraper shows as red rather than a quiet warning.
-      - run: npm run refresh:thelight
+      # Each site is scraped independently so one breaking (e.g. a site
+      # redesign or a bot block) doesn't stop the other's data being committed.
+      # continue-on-error lets the commit step run; the final step then fails
+      # the job so a broken scraper shows as a red run, not a quiet warning.
+      - id: curzon
+        run: npm run refresh
+        continue-on-error: true
+      - id: thelight
+        run: npm run refresh:thelight
+        continue-on-error: true
 
-      - name: Commit updated data.json
+      - name: Commit updated data.json files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/thelight/data.json
+          git add docs/data.json docs/thelight/data.json
           git diff --staged --quiet || git commit -m "Refresh showtimes data"
-          # The local Curzon refresh pushes to the same branch, so rebase over it.
           git pull --rebase
           git push
+
+      - name: Fail if any scraper failed
+        if: steps.curzon.outcome == 'failure' || steps.thelight.outcome == 'failure'
+        run: |
+          echo "curzon: ${{ steps.curzon.outcome }}, thelight: ${{ steps.thelight.outcome }}"
+          exit 1
